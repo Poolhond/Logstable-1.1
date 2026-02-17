@@ -2029,11 +2029,39 @@ function renderNewLogSheet(){
           <label>Klant</label>
           <select id="startCustomer">${customerOptions || `<option value="">(Geen klanten)</option>`}</select>
         </div>
+        <div>
+          <label for="newCustomerNickname">Nieuwe klant (bijnaam)</label>
+          <div class="row">
+            <input id="newCustomerNickname" placeholder="Bijv. De achtertuin" />
+            <button class="btn" id="btnAddCustomerInline">Toevoegen</button>
+          </div>
+        </div>
         <button class="btn primary" id="btnStartFromSheet" ${(state.customers.length && !active) ? "" : "disabled"}>Start werk</button>
         ${state.customers.length ? "" : `<div class="small">Maak eerst een klant aan.</div>`}
       </div>
     </div>
   `;
+
+  const newCustomerInput = $("#newCustomerNickname");
+  const createCustomer = ()=>{
+    const nickname = (newCustomerInput?.value || "").trim();
+    if (!nickname) return;
+
+    const c = actions.addCustomer({ id: uid(), nickname, name:"", address:"", createdAt: now() });
+    if (newCustomerInput) newCustomerInput.value = "";
+
+    requestAnimationFrame(()=>{
+      const select = $("#startCustomer");
+      if (select) select.value = c.id;
+    });
+  };
+
+  $("#btnAddCustomerInline")?.addEventListener("click", createCustomer);
+  newCustomerInput?.addEventListener("keydown", (ev)=>{
+    if (ev.key !== "Enter") return;
+    ev.preventDefault();
+    createCustomer();
+  });
 
   $("#btnStartFromSheet")?.addEventListener("click", ()=>{
     const cid = $("#startCustomer")?.value;
