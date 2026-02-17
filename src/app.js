@@ -104,6 +104,19 @@ function parseLogTimeToMs(isoDate, value){
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizeTheme(theme){
+  return theme === "day" ? "day" : "night";
+}
+
+function applyTheme(theme){
+  const selected = normalizeTheme(theme);
+  document.body.setAttribute("data-theme", selected);
+  const themeMeta = document.querySelector('meta[name="theme-color"]');
+  if (themeMeta){
+    themeMeta.setAttribute("content", selected === "day" ? "#f4f7fb" : "#0b0f14");
+  }
+}
+
 function confirmDelete(label){
   return confirm(`Zeker verwijderen?\n\n${label}\n\nDit kan niet ongedaan gemaakt worden.`);
 }
@@ -197,7 +210,7 @@ function openTextConfirmModal({ title, message, expectedText, confirmText = "Def
 function defaultState(){
   return {
     schemaVersion: 1,
-    settings: { hourlyRate: 38, vatRate: 0.21 },
+    settings: { hourlyRate: 38, vatRate: 0.21, theme: "night" },
     customers: [
       { id: uid(), nickname:"Van de Werf", name:"", address:"Heverlee, Leuven", createdAt: now() },
       { id: uid(), nickname:"Kessel-Lo tuin", name:"", address:"Kessel-Lo, Leuven", createdAt: now() },
@@ -333,9 +346,11 @@ function loadState(){
   const st = validateAndRepairState(migrateState(parsed.value));
 
   // migrations
-  if (!st.settings) st.settings = { hourlyRate: 38, vatRate: 0.21 };
+  if (!st.settings) st.settings = { hourlyRate: 38, vatRate: 0.21, theme: "night" };
   if (!("hourlyRate" in st.settings)) st.settings.hourlyRate = 38;
   if (!("vatRate" in st.settings)) st.settings.vatRate = 0.21;
+  if (!("theme" in st.settings)) st.settings.theme = "night";
+  st.settings.theme = normalizeTheme(st.settings.theme);
   if (!st.customers) st.customers = [];
   if (!st.products) st.products = [];
   if (!st.logs) st.logs = [];
@@ -1071,9 +1086,10 @@ const actions = {
     commit();
   },
   addProduct(product){ state.products.unshift(product); commit(); return product; },
-  updateSettings(hourlyRate, vatRate){
+  updateSettings(hourlyRate, vatRate, theme = state.settings.theme){
     state.settings.hourlyRate = round2(hourlyRate);
     state.settings.vatRate = round2(vatRate);
+    state.settings.theme = normalizeTheme(theme);
     commit();
   },
   setEditLog(logId){
@@ -1345,6 +1361,7 @@ function closeSheet(){
 
 // ---------- Render ----------
 function render(){
+  applyTheme(state.settings?.theme);
   const root = ui.navStack[0]?.view || "logs";
   updateTabs();
   if (root === "logs") renderLogs();
@@ -1690,8 +1707,9 @@ function _attachSettingsHandlers(){
   $("#saveSettings").onclick = ()=>{
     const hourly = Number(String($("#settingHourly").value).replace(",", ".") || "0");
     const vatPct = Number(String($("#settingVat").value).replace(",", ".") || "0");
+    const theme = normalizeTheme($("#settingTheme")?.value);
 
-    actions.updateSettings(hourly, vatPct / 100);
+    actions.updateSettings(hourly, vatPct / 100, theme);
     alert("Instellingen opgeslagen.");
   };
 
@@ -2024,6 +2042,13 @@ function renderSettingsSheet(){
           <div style="flex:1; min-width:170px;">
             <label>BTW %</label>
             <input id="settingVat" inputmode="decimal" value="${esc(String(round2(Number(state.settings.vatRate || 0) * 100)))}" />
+          </div>
+          <div style="flex:1; min-width:170px;">
+            <label>Thema</label>
+            <select id="settingTheme">
+              <option value="night" ${normalizeTheme(state.settings.theme) === "night" ? "selected" : ""}>Nacht</option>
+              <option value="day" ${normalizeTheme(state.settings.theme) === "day" ? "selected" : ""}>Dag</option>
+            </select>
           </div>
         </div>
         <button class="btn primary" id="saveSettings">Opslaan</button>
