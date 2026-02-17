@@ -428,7 +428,7 @@ function seedDemoMonths(st, { months = 3, force = false } = {}){
   const greenProduct = st.products.find(p => (p.name||"").trim().toLowerCase() === "groen");
   if (!workProduct || !greenProduct) return false;
 
-  const customerCount = ri(12, 25);
+  const customerCount = ri(3, 5);
   const logCount = ri(40, 90);
   const settlementCount = ri(15, 35);
 
@@ -599,6 +599,12 @@ function clearDemoData(st){
 }
 
 let state = stateModule.loadState();
+if (!state.ui?.demoDefaultLoaded){
+  const changed = seedDemoMonths(state, { months: 3, force: false });
+  state.ui = state.ui || {};
+  state.ui.demoDefaultLoaded = true;
+  if (changed) stateModule.saveState(state);
+}
 
 // ---------- Computations ----------
 function sumWorkMs(log){
