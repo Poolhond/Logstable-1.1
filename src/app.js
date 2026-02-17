@@ -1516,7 +1516,7 @@ function renderLogs(){
       </div>
     `;
   } else {
-    // Idle state: big tap target + recent customers
+    // Idle state: recent customers quick start
     const recentCustomerIds = [...new Set(
       state.logs
         .filter(l => l.customerId)
@@ -1532,11 +1532,7 @@ function renderLogs(){
 
     timerBlock = `
       <div class="timer-idle">
-        <button class="timer-idle-cta" id="btnTimerStart">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6l10 6-10 6z" stroke-linejoin="round"/></svg>
-          <span class="timer-idle-label">Tik om te beginnen</span>
-        </button>
-        ${recentChips ? `<div class="timer-idle-sub">of kies een klant:</div><div class="recent-customers">${recentChips}</div>` : `<div class="timer-idle-sub">Maak eerst een klant aan via Meer</div>`}
+        ${recentChips ? `<div class="timer-idle-sub">start</div><div class="recent-customers">${recentChips}</div>` : `<div class="timer-idle-sub">Maak eerst een klant aan via Meer</div>`}
       </div>
     `;
   }
@@ -1584,14 +1580,6 @@ function renderLogs(){
       openSheet("log", active.id);
     });
   } else {
-    // Idle state: tap to start with newLog sheet
-    $("#btnTimerStart")?.addEventListener("click", ()=>{
-      if (state.customers.length === 0){
-        alert("Maak eerst een klant aan via het Meer-scherm.");
-        return;
-      }
-      pushView({ view: "newLog" });
-    });
     // Recent customer chips: start work directly
     el.querySelectorAll("[data-start-customer]").forEach(chip=>{
       chip.addEventListener("click", ()=>{
