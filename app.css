@@ -1162,6 +1162,30 @@ h2{
   font-size:12px;
   color:var(--muted);
   font-variant-numeric:tabular-nums;
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+.timer-state-dot{
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  display:inline-block;
+}
+.timer-state-dot.is-running{
+  background:#00b86b;
+  box-shadow:0 0 0 4px rgba(0,184,107,.18);
+}
+.timer-state-dot.is-paused{
+  background:#ff9a3d;
+  box-shadow:0 0 0 4px rgba(255,154,61,.18);
+}
+.timer-green-feedback{
+  font-size:12px;
+  color:var(--muted);
+}
+.timer-green-feedback.has-items{
+  color:#56d48f;
 }
 .timer-active-actions{
   display:flex;
@@ -1189,9 +1213,21 @@ h2{
   border-color:rgba(255,154,61,.45);
   color:#ff9a3d;
 }
+.timer-action-btn.pause-btn.is-running{
+  background:rgba(0,184,107,.16);
+  border-color:rgba(0,184,107,.7);
+  color:#56d48f;
+}
 .timer-action-btn.pause-btn.is-paused{
   background:rgba(255,154,61,.12);
   border-color:rgba(255,154,61,.6);
+}
+.timer-action-btn.green-btn{
+  border-color:rgba(86,212,143,.45);
+  color:#56d48f;
+}
+.timer-action-btn.green-btn:active{
+  background:rgba(86,212,143,.16);
 }
 .timer-action-btn.stop-btn{
   border-color:rgba(255,107,107,.45);

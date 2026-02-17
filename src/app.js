@@ -654,6 +654,18 @@ function countExtraProducts(log){
     return isWork ? count : count + 1;
   }, 0);
 }
+function findGreenProduct(){
+  const aliases = ["groen", "snoeiafval"];
+  return state.products.find(product => aliases.includes((product.name || "").trim().toLowerCase())) || null;
+}
+function countGreenItems(log){
+  const greenProduct = findGreenProduct();
+  if (!greenProduct) return 0;
+  return round2((log.items || []).reduce((total, item)=>{
+    if (item.productId !== greenProduct.id) return total;
+    return total + (Number(item.qty) || 0);
+  }, 0));
+}
 function getCustomer(id){ return state.customers.find(c => c.id === id) || null; }
 function cname(id){ const c=getCustomer(id); return c ? (c.nickname || c.name || "Klant") : "Klant"; }
 function getProduct(id){ return state.products.find(p => p.id === id) || null; }
@@ -970,6 +982,13 @@ const actions = {
     log.closedAt = now();
     state.activeLogId = null;
     ui.activeLogQuickAdd.open = false;
+    commit();
+  },
+  addGreenToLog(logId){
+    const greenProduct = findGreenProduct();
+    if (!greenProduct) return;
+    const added = addProductToLog(logId, greenProduct.id, 1, greenProduct.unitPrice);
+    if (!added) return;
     commit();
   },
   editLog(logId, updater){
@@ -1502,16 +1521,21 @@ function renderLogs(){
   let timerBlock = "";
   if (active){
     const isPaused = currentOpenSegment(active)?.type === "break";
+    const greenCount = countGreenItems(active);
     timerBlock = `
       <div class="timer-active">
         <div class="timer-active-customer">${esc(cname(active.customerId))}</div>
         <div class="timer-active-elapsed">${durMsToHM(sumWorkMs(active))}</div>
-        <div class="timer-active-meta">${isPaused ? "Pauze" : "Actief"} · gestart ${fmtClock(active.createdAt)}</div>
+        <div class="timer-active-meta"><span class="timer-state-dot ${isPaused ? "is-paused" : "is-running"}"></span>${isPaused ? "Pauze actief" : "Timer loopt"} · gestart ${fmtClock(active.createdAt)}</div>
+        <div class="timer-green-feedback ${greenCount > 0 ? "has-items" : ""}">${greenCount > 0 ? `🌿 Groen toegevoegd: ${greenCount}x` : "Nog geen groen toegevoegd"}</div>
         <div class="timer-active-actions">
-          <button class="timer-action-btn pause-btn ${isPaused ? "is-paused" : ""}" id="btnPause" title="${isPaused ? "Hervat werk" : "Pauze"}" aria-label="${isPaused ? "Hervat werk" : "Pauze"}">
+          <button class="timer-action-btn pause-btn ${isPaused ? "is-paused" : "is-running"}" id="btnPause" title="${isPaused ? "Hervat werk" : "Pauze"}" aria-label="${isPaused ? "Hervat werk" : "Pauze"}">
             ${isPaused
               ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6l10 6-10 6z" stroke-linejoin="round"/></svg>`
               : `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 5v14M16 5v14" stroke-linecap="round"/></svg>`}
+          </button>
+          <button class="timer-action-btn green-btn" id="btnAddGreen" title="Voeg 1x groen toe" aria-label="Voeg 1x groen (snoeiafval) toe">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19c-3.5 0-6-2.6-6-6.2 0-3.8 2.8-6.6 6.9-7.8.8 4.7 3.8 6.7 5.1 8.8 1.3 2.2-.5 5.2-6 5.2z" stroke-linejoin="round"/><path d="M12 19v-6" stroke-linecap="round"/></svg>
           </button>
           <button class="timer-action-btn stop-btn" id="btnStop" title="Stop" aria-label="Stop werklog">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>
@@ -1568,12 +1592,10 @@ function renderLogs(){
   // Timer-first actions
   if (active){
     $("#btnPause")?.addEventListener("click", ()=>{
-      const seg = currentOpenSegment(active);
-      if (!seg) openSegment(active,"work");
-      else if (seg.type === "work"){ closeOpenSegment(active); openSegment(active,"break"); }
-      else { closeOpenSegment(active); openSegment(active,"work"); }
-
       actions.pauseLog(active.id);
+    });
+    $("#btnAddGreen")?.addEventListener("click", ()=>{
+      actions.addGreenToLog(active.id);
     });
     $("#btnStop")?.addEventListener("click", ()=>{
       actions.stopLog(active.id);
@@ -3050,7 +3072,7 @@ setInterval(()=>{
       if (active){
         elapsedEl.textContent = durMsToHM(sumWorkMs(active));
         const isPaused = currentOpenSegment(active)?.type === "break";
-        if (metaEl) metaEl.textContent = `${isPaused ? "Pauze" : "Actief"} · gestart ${fmtClock(active.createdAt)}`;
+        if (metaEl) metaEl.textContent = `${isPaused ? "Pauze actief" : "Timer loopt"} · gestart ${fmtClock(active.createdAt)}`;
       }
     }
   }
