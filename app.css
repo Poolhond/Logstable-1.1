@@ -10,6 +10,8 @@
   --topbar-bg: rgba(11,15,20,.92);
   --topsubtitle: rgba(233,238,246,.86);
   --tabbar-height: 90px;
+  --bottom-tabbar-height: 90px;
+  --status-tabbar-height: 0px;
   --topbar-height: 64px;
 
   --r:18px;
@@ -107,7 +109,7 @@ body{
   overflow:auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
-  padding: calc(var(--topbar-height) + env(safe-area-inset-top) + 8px) var(--pad) calc(var(--tabbar-height) + env(safe-area-inset-bottom)) var(--pad);
+  padding: calc(var(--topbar-height) + env(safe-area-inset-top) + 8px) var(--pad) calc(var(--bottom-tabbar-height) + var(--status-tabbar-height) + env(safe-area-inset-bottom)) var(--pad);
   max-width: 760px;
   margin: 0 auto;
 }
@@ -301,15 +303,50 @@ label{ display:block; font-size:12px; color:var(--muted); margin: 0 0 6px 0; }
   border-radius:10px;
 }
 
-.tabs{
+.tabs,
+.status-tabbar{
   position:fixed; left:0; right:0; bottom:0; z-index:20;
   background: var(--topbar-bg);
   backdrop-filter: blur(14px);
   border-top:1px solid var(--border);
   padding: 8px 10px calc(8px + env(safe-area-inset-bottom)) 10px;
+}
+
+.tabs{
   display:grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
+}
+
+.status-tabbar{
+  z-index:21;
+  bottom: var(--bottom-tabbar-height);
+  padding: 8px 12px;
+}
+
+.status-tabbar-inner{
+  width:min(760px, 100%);
+  margin:0 auto;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.status-tabbar .settlement-status-bar{
+  min-height:36px;
+}
+
+.status-tabbar .status-icon-chip,
+.status-tabbar #btnSettlementEdit{
+  width:36px;
+  height:36px;
+}
+
+.status-tabbar #btnSettlementEdit{
+  min-height:36px;
+  padding:0;
+  border-radius:999px;
 }
 .tab{
   border:1px solid transparent;
@@ -1280,7 +1317,7 @@ h2{
   flex-direction:column;
 }
 .meer-layout{
-  min-height: calc(100dvh - var(--topbar-height) - var(--tabbar-height) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 16px);
+  min-height: calc(100dvh - var(--topbar-height) - var(--bottom-tabbar-height) - var(--status-tabbar-height) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 16px);
   justify-content:flex-end;
 }
 .meer-item{
