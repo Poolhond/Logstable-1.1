@@ -108,14 +108,20 @@ function normalizeTheme(theme){
   return theme === "day" ? "day" : "night";
 }
 
+function syncThemeColorWithChromeBg(){
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) return;
+  const bg = getComputedStyle(document.documentElement).getPropertyValue("--chrome-bg").trim();
+  if (bg) meta.setAttribute("content", bg);
+}
+
 function applyTheme(theme){
   const selected = normalizeTheme(theme);
   document.body.setAttribute("data-theme", selected);
-  const themeMeta = document.querySelector('meta[name="theme-color"]');
-  if (themeMeta){
-    themeMeta.setAttribute("content", selected === "day" ? "#f4f7fb" : "#0b0f14");
-  }
+  syncThemeColorWithChromeBg();
 }
+
+window.addEventListener("DOMContentLoaded", syncThemeColorWithChromeBg);
 
 function confirmDelete(label){
   return confirm(`Zeker verwijderen?\n\n${label}\n\nDit kan niet ongedaan gemaakt worden.`);
