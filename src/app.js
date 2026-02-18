@@ -1260,18 +1260,11 @@ function renderTopbar(){
   const showBack = ui.navStack.length > 1;
   const isSettlementDetail = active.view === "settlementDetail";
   const settlement = isSettlementDetail ? state.settlements.find(x => x.id === active.id) : null;
-  const isEdit = settlement ? isSettlementEditing(settlement.id) : false;
 
   $("#btnBack")?.classList.add("hidden");
 
   if (isSettlementDetail && settlement){
-    btnNew.classList.remove("hidden");
-    btnNew.classList.add("topbar-edit");
-    btnNew.innerHTML = isEdit
-      ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5L19 7" stroke-linecap="round" stroke-linejoin="round"></path></svg><span id="btnTopbarActionLabel">Gereed</span>`
-      : `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21l3.5-.8L19 7.7a1.8 1.8 0 0 0 0-2.5l-.2-.2a1.8 1.8 0 0 0-2.5 0L3.8 17.5z"></path><path d="M14 5l5 5"></path></svg><span id="btnTopbarActionLabel">Bewerk</span>`;
-    btnNew.setAttribute("aria-label", isEdit ? "Gereed" : "Bewerk");
-    btnNew.setAttribute("title", isEdit ? "Gereed" : "Bewerk");
+    btnNew.classList.add("hidden");
     return;
   }
 
@@ -1959,6 +1952,7 @@ function renderSheet(){
   if (!actions || !body) return;
   actions.innerHTML = "";
   body.innerHTML = "";
+  body.style.paddingBottom = "18px";
 
   if (active.view === "customerDetail") renderCustomerSheet(active.id);
   if (active.view === "productDetail") renderProductSheet(active.id);
@@ -2657,16 +2651,18 @@ function syncSettlementAmounts(settlement){
 
 function renderSettlementStatusIcons(settlement){
   const isCalculated = isSettlementCalculated(settlement);
-  if (!isCalculated){
-    return `
-      <button class="status-icon-chip status-icon-calc is-open" id="toggleCalculated" type="button" aria-label="Bereken afrekening">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 7h8M8 12h3M13 12h3M8 16h8" stroke-linecap="round"></path></svg>
-      </button>
-    `;
-  }
-
+  const isEdit = isSettlementEditing(settlement?.id);
+  const calcStateClass = isCalculated ? "is-open" : "";
+  const calcStateStyle = isCalculated
+    ? ""
+    : ' style="color:#ffcc00;border-color:rgba(255,204,0,.55);background:rgba(255,204,0,.10);"';
+  const calcDisabled = !isEdit && isCalculated ? " disabled aria-disabled=\"true\"" : "";
   const iconPresentation = getSettlementIconPresentation(settlement);
-  const chips = [];
+  const chips = [`
+    <button class="status-icon-chip status-icon-calc ${calcStateClass}" id="toggleCalculated" type="button" aria-label="Bereken afrekening"${calcStateStyle}${calcDisabled}>
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 7h8M8 12h3M13 12h3M8 16h8" stroke-linecap="round"></path></svg>
+    </button>
+  `];
   const invoiceIcon = iconPresentation.find(icon => icon.type === "invoice");
   if (invoiceIcon?.show){
     chips.push(`
@@ -2697,6 +2693,15 @@ function calculateSettlement(settlement){
   settlement.calculatedAt = now();
   syncSettlementStatus(settlement);
   syncSettlementAmounts(settlement);
+}
+
+function uncalculateSettlement(settlement){
+  if (!settlement) return;
+  settlement.isCalculated = false;
+  settlement.markedCalculated = false;
+  settlement.calculatedAt = null;
+  settlement.status = "draft";
+  syncSettlementStatus(settlement);
 }
 
 function renderSettlementLogOverviewSheet(settlementId){
@@ -2775,15 +2780,10 @@ function renderSettlementSheet(id){
   const summary = settlementLogbookSummary(s);
 
   $('#sheetActions').innerHTML = '';
+  $('#sheetBody').style.paddingBottom = 'calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 96px)';
 
   $('#sheetBody').innerHTML = `
     <div class="stack settlement-detail ${visual.accentClass}">
-      <div class="card stack compact-card">
-        <div class="settlement-status-bar" role="group" aria-label="Afrekening status acties">
-          ${renderSettlementStatusIcons(s)}
-        </div>
-      </div>
-
       <div class="card stack compact-card">
         <div class="row space"><h2>Gekoppelde logs</h2>${isEdit ? `<button class="btn" id="btnRecalc">Herbereken uit logs</button>` : ""}</div>
         <div class="list" id="sLogs">
@@ -2834,11 +2834,36 @@ function renderSettlementSheet(id){
         <div class="compact-row"><label>Datum</label><div><input id="sDate" type="date" value="${esc(s.date||todayISO())}" /></div></div>
         <button class="btn danger" id="delSettlement">Verwijder</button>
       </div>` : ""}
+
+      <div class="settlement-bottom-actions" style="position:sticky;bottom:calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 8px);z-index:25;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:14px;background:var(--surface);">
+        <div class="settlement-status-bar" role="group" aria-label="Afrekening status acties">
+          ${renderSettlementStatusIcons(s)}
+        </div>
+        <button class="iconbtn" id="btnSettlementEdit" type="button" aria-label="${isEdit ? "Gereed" : "Bewerk"}" title="${isEdit ? "Gereed" : "Bewerk"}">
+          ${isEdit
+            ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5L19 7" stroke-linecap="round" stroke-linejoin="round"></path></svg>`
+            : `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21l3.5-.8L19 7.7a1.8 1.8 0 0 0 0-2.5l-.2-.2a1.8 1.8 0 0 0-2.5 0L3.8 17.5z"></path><path d="M14 5l5 5"></path></svg>`}
+        </button>
+      </div>
     </div>
   `;
 
   $('#toggleCalculated')?.addEventListener('click', ()=>{
-    actions.calculateSettlement(s.id);
+    const calculated = isSettlementCalculated(s);
+    if (isEdit){
+      if (calculated){
+        actions.editSettlement(s.id, (draft)=>{
+          uncalculateSettlement(draft);
+        });
+      } else {
+        actions.calculateSettlement(s.id);
+      }
+      renderSheet();
+      return;
+    }
+    if (!calculated){
+      actions.calculateSettlement(s.id);
+    }
     renderSheet();
   });
   $('#toggleInvoicePaid')?.addEventListener('click', ()=>{
@@ -2847,6 +2872,10 @@ function renderSettlementSheet(id){
   });
   $('#toggleCashPaid')?.addEventListener('click', ()=>{
     actions.setCashPaid(s.id, !s.cashPaid);
+    renderSheet();
+  });
+  $('#btnSettlementEdit')?.addEventListener('click', ()=>{
+    toggleEditSettlement(s.id);
     renderSheet();
   });
 
