@@ -830,9 +830,9 @@ function renderLogCard(log){
   const cls = statusClassFromStatus(st);
   const startTime = getStartTime(log);
   const workDuration = getTotalWorkDuration(log);
+  const totalWorkLabel = durMsToHM(sumWorkMs(log));
   const extraProducts = countExtraProducts(log);
   const extraLabel = extraProducts > 0 ? `<span>+${extraProducts}</span>` : "";
-  const amount = sumItemsAmount(log);
 
   return `
     <div class="item ${cls}" data-open-log="${log.id}">
@@ -842,7 +842,7 @@ function renderLogCard(log){
           <span>${esc(formatLogDatePretty(log.date))}</span> · <span>Start ${esc(startTime)}</span> · <span>${esc(workDuration)}</span>${extraLabel ? ` · ${extraLabel}` : ""}
         </div>
       </div>
-      ${amount > 0 ? `<div class="amount-prominent">${fmtMoney(amount)}</div>` : ""}
+      <div class="amount-prominent">${esc(totalWorkLabel)}</div>
     </div>
   `;
 }
