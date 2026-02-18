@@ -1916,7 +1916,7 @@ function renderMeer(){
   const chevron = `<svg class="meer-item-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
   el.innerHTML = `
-    <div class="stack">
+    <div class="stack meer-layout">
       <div class="meer-list">
         <button class="meer-item" data-meer="customers">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" stroke-linecap="round"/><path d="M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/></svg>
