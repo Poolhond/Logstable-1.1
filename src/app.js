@@ -1364,6 +1364,49 @@ function closeSheet(){
   popView();
 }
 
+
+function measureBottomTabbarHeight(){
+  const tabbar = document.getElementById("bottomTabbar");
+  if (!tabbar) return Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--bottom-tabbar-height")) || 90;
+  return Math.round(tabbar.getBoundingClientRect().height) || 90;
+}
+
+function setBottomBarHeights({ statusVisible = false } = {}){
+  const root = document.documentElement;
+  const bottomHeight = measureBottomTabbarHeight();
+  root.style.setProperty("--bottom-tabbar-height", `${bottomHeight}px`);
+  root.style.setProperty("--tabbar-height", `${bottomHeight}px`);
+
+  const statusHost = document.getElementById("statusTabbarHost");
+  if (!statusVisible || !statusHost || !statusHost.firstElementChild){
+    root.style.setProperty("--status-tabbar-height", "0px");
+    if (statusHost) statusHost.style.bottom = `${bottomHeight}px`;
+    return;
+  }
+
+  statusHost.style.bottom = `${bottomHeight}px`;
+  const statusHeight = Math.round(statusHost.firstElementChild.getBoundingClientRect().height) || 0;
+  root.style.setProperty("--status-tabbar-height", `${statusHeight}px`);
+}
+
+function clearStatusTabbar(){
+  const host = document.getElementById("statusTabbarHost");
+  if (!host) return;
+  host.innerHTML = "";
+  setBottomBarHeights({ statusVisible: false });
+}
+
+function renderStatusTabbar(content){
+  const host = document.getElementById("statusTabbarHost");
+  if (!host) return;
+  host.innerHTML = `
+    <div class="status-tabbar" role="group" aria-label="Afrekening status acties">
+      <div class="status-tabbar-inner">${content}</div>
+    </div>
+  `;
+  setBottomBarHeights({ statusVisible: true });
+}
+
 // ---------- Render ----------
 function render(){
   applyTheme(state.settings?.theme);
@@ -1953,6 +1996,8 @@ function renderSheet(){
   actions.innerHTML = "";
   body.innerHTML = "";
   body.style.paddingBottom = "18px";
+  clearStatusTabbar();
+  setBottomBarHeights({ statusVisible: false });
 
   if (active.view === "customerDetail") renderCustomerSheet(active.id);
   if (active.view === "productDetail") renderProductSheet(active.id);
@@ -2780,7 +2825,7 @@ function renderSettlementSheet(id){
   const summary = settlementLogbookSummary(s);
 
   $('#sheetActions').innerHTML = '';
-  $('#sheetBody').style.paddingBottom = 'calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 96px)';
+  $('#sheetBody').style.paddingBottom = 'calc(var(--bottom-tabbar-height) + var(--status-tabbar-height) + env(safe-area-inset-bottom) + 24px)';
 
   $('#sheetBody').innerHTML = `
     <div class="stack settlement-detail ${visual.accentClass}">
@@ -2834,19 +2879,19 @@ function renderSettlementSheet(id){
         <div class="compact-row"><label>Datum</label><div><input id="sDate" type="date" value="${esc(s.date||todayISO())}" /></div></div>
         <button class="btn danger" id="delSettlement">Verwijder</button>
       </div>` : ""}
-
-      <div class="settlement-bottom-actions" style="position:sticky;bottom:calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 8px);z-index:25;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:14px;background:var(--surface);">
-        <div class="settlement-status-bar" role="group" aria-label="Afrekening status acties">
-          ${renderSettlementStatusIcons(s)}
-        </div>
-        <button class="iconbtn" id="btnSettlementEdit" type="button" aria-label="${isEdit ? "Gereed" : "Bewerk"}" title="${isEdit ? "Gereed" : "Bewerk"}">
-          ${isEdit
-            ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5L19 7" stroke-linecap="round" stroke-linejoin="round"></path></svg>`
-            : `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21l3.5-.8L19 7.7a1.8 1.8 0 0 0 0-2.5l-.2-.2a1.8 1.8 0 0 0-2.5 0L3.8 17.5z"></path><path d="M14 5l5 5"></path></svg>`}
-        </button>
-      </div>
     </div>
   `;
+
+  renderStatusTabbar(`
+    <div class="settlement-status-bar">
+      ${renderSettlementStatusIcons(s)}
+    </div>
+    <button class="iconbtn" id="btnSettlementEdit" type="button" aria-label="${isEdit ? "Gereed" : "Bewerk"}" title="${isEdit ? "Gereed" : "Bewerk"}">
+      ${isEdit
+        ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5L19 7" stroke-linecap="round" stroke-linejoin="round"></path></svg>`
+        : `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21l3.5-.8L19 7.7a1.8 1.8 0 0 0 0-2.5l-.2-.2a1.8 1.8 0 0 0-2.5 0L3.8 17.5z"></path><path d="M14 5l5 5"></path></svg>`}
+    </button>
+  `);
 
   $('#toggleCalculated')?.addEventListener('click', ()=>{
     const calculated = isSettlementCalculated(s);
@@ -3125,8 +3170,13 @@ const renderer = createRenderer({ getState: () => state, actions: modularActions
 // - Backup export/import still works
 // - Refresh persists state
 installIOSNoZoomGuards();
+window.addEventListener("resize", ()=>{
+  const hasStatus = Boolean(document.querySelector("#statusTabbarHost .status-tabbar"));
+  setBottomBarHeights({ statusVisible: hasStatus });
+});
 setTab("logs");
 renderer.render();
+setBottomBarHeights({ statusVisible: false });
 
 // Timer tick: update active timer display every 15 seconds
 setInterval(()=>{
