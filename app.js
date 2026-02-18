@@ -1513,7 +1513,9 @@ function renderLogs(){
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6l10 6-10 6z" stroke-linejoin="round"/></svg>
           <span class="timer-idle-label">Tik om te beginnen</span>
         </button>
-        ${recentChips ? `<div class="timer-idle-sub">of kies een klant:</div><div class="recent-customers">${recentChips}</div>` : `<div class="timer-idle-sub">Maak eerst een klant aan via Meer</div>`}
+        <div class="timer-start-space">
+          ${recentChips ? `<div class="timer-idle-sub">of kies een klant:</div><div class="recent-customers">${recentChips}</div>` : `<div class="timer-idle-sub">Maak eerst een klant aan via Meer</div>`}
+        </div>
       </div>
     `;
   }
