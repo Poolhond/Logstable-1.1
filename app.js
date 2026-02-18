@@ -1161,6 +1161,7 @@ function renderTopbar(){
   const topbar = document.querySelector(".topbar");
   const subtitleEl = $("#topbarSubtitle");
   const btnNew = $("#btnNewLog");
+  let linkedCustomerId = "";
   topbar.classList.remove("nav--free", "nav--linked", "nav--calculated", "nav--paid");
   subtitleEl.classList.add("hidden");
   subtitleEl.textContent = "";
@@ -1174,6 +1175,7 @@ function renderTopbar(){
       $("#topbarTitle").textContent = cname(log.customerId);
       subtitleEl.textContent = formatLogDatePretty(log.date);
       subtitleEl.classList.remove("hidden");
+      linkedCustomerId = log.customerId || "";
     } else {
       $("#topbarTitle").textContent = viewTitle(active);
     }
@@ -1185,6 +1187,7 @@ function renderTopbar(){
       $("#topbarTitle").textContent = cname(settlement.customerId);
       subtitleEl.textContent = formatDatePretty(settlement.date);
       subtitleEl.classList.remove("hidden");
+      linkedCustomerId = settlement.customerId || "";
     } else {
       $("#topbarTitle").textContent = viewTitle(active);
     }
@@ -1192,13 +1195,14 @@ function renderTopbar(){
     $("#topbarTitle").textContent = viewTitle(active);
   }
 
-  const root = ui.navStack[0]?.view || "logs";
+  topbar.dataset.customerId = linkedCustomerId;
+
   const showBack = ui.navStack.length > 1;
   const isSettlementDetail = active.view === "settlementDetail";
   const settlement = isSettlementDetail ? state.settlements.find(x => x.id === active.id) : null;
   const isEdit = settlement ? isSettlementEditing(settlement.id) : false;
 
-  $("#btnBack").classList.toggle("hidden", !showBack);
+  $("#btnBack")?.classList.add("hidden");
 
   if (isSettlementDetail && settlement){
     btnNew.classList.remove("hidden");
@@ -1240,7 +1244,16 @@ $("#nav-logs").addEventListener("click", ()=>setTab("logs"));
 $("#nav-settlements").addEventListener("click", ()=>setTab("settlements"));
 $("#nav-meer").addEventListener("click", ()=>setTab("meer"));
 
-$("#btnBack").addEventListener("click", popView);
+$("#btnBack")?.addEventListener("click", popView);
+$(".topbar")?.addEventListener("click", (event)=>{
+  if (event.target.closest("button")) return;
+  const active = currentView();
+  if (active.view !== "logDetail" && active.view !== "settlementDetail") return;
+  const customerId = event.currentTarget?.dataset?.customerId;
+  if (!customerId) return;
+  if (ui.navStack.some(v => v.view === "customerDetail" && v.id === customerId)) return;
+  pushView({ view: "customerDetail", id: customerId });
+});
 $("#btnNewLog").onclick = ()=>{
   const active = currentView();
   if (active.view === "settlementDetail"){
