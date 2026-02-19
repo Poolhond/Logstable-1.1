@@ -1098,6 +1098,10 @@ const actions = {
     state.settings.theme = normalizeTheme(theme);
     commit();
   },
+  setTheme(theme){
+    state.settings.theme = normalizeTheme(theme);
+    commit();
+  },
   setEditLog(logId){
     state.ui.editLogId = state.ui.editLogId === logId ? null : logId;
     if (state.ui.editLogId !== logId) ui.logDetailSegmentEditId = null;
@@ -1383,6 +1387,12 @@ function measureDetailActionBarHeight(){
   return Math.round(bar.getBoundingClientRect().height) || 0;
 }
 
+function measureMoreActionBarHeight(){
+  const bar = document.getElementById("moreActionBar");
+  if (!bar || bar.classList.contains("hidden")) return 0;
+  return Math.round(bar.getBoundingClientRect().height) || 0;
+}
+
 function setBottomBarHeights({ statusVisible = false } = {}){
   const root = document.documentElement;
   const bottomHeight = measureBottomTabbarHeight();
@@ -1454,9 +1464,38 @@ function syncDetailBars(){
   document.documentElement.style.setProperty("--detail-actionbar-height", `${measureDetailActionBarHeight()}px`);
 }
 
+function syncMoreActionRow(){
+  const active = currentView();
+  const row = document.getElementById("moreActionBar");
+  const toggle = document.getElementById("moreThemeToggle");
+  if (!row || !toggle) return;
+
+  const show = active.view === "meer";
+  if (!show){
+    row.classList.add("hidden");
+    row.setAttribute("aria-hidden", "true");
+    document.documentElement.style.setProperty("--more-actionbar-height", "0px");
+    return;
+  }
+
+  row.classList.remove("hidden");
+  row.setAttribute("aria-hidden", "false");
+  toggle.checked = normalizeTheme(state.settings?.theme) === "day";
+
+  if (!toggle.dataset.bound){
+    toggle.addEventListener("change", ()=>{
+      actions.setTheme(toggle.checked ? "day" : "night");
+    });
+    toggle.dataset.bound = "true";
+  }
+
+  document.documentElement.style.setProperty("--more-actionbar-height", `${measureMoreActionBarHeight()}px`);
+}
+
 function syncViewUiState(){
   const active = currentView();
   document.body.dataset.view = active.view || "logs";
+  syncMoreActionRow();
 
   const host = document.getElementById("statusTabbarHost");
   if (!host) return;
@@ -1820,9 +1859,8 @@ function _attachSettingsHandlers(){
   $("#saveSettings").onclick = ()=>{
     const hourly = Number(String($("#settingHourly").value).replace(",", ".") || "0");
     const vatPct = Number(String($("#settingVat").value).replace(",", ".") || "0");
-    const theme = normalizeTheme($("#settingTheme")?.value);
 
-    actions.updateSettings(hourly, vatPct / 100, theme);
+    actions.updateSettings(hourly, vatPct / 100);
     alert("Instellingen opgeslagen.");
   };
 
@@ -2158,13 +2196,6 @@ function renderSettingsSheet(){
           <div style="flex:1; min-width:170px;">
             <label>BTW %</label>
             <input id="settingVat" inputmode="decimal" value="${esc(String(round2(Number(state.settings.vatRate || 0) * 100)))}" />
-          </div>
-          <div style="flex:1; min-width:170px;">
-            <label>Thema</label>
-            <select id="settingTheme">
-              <option value="night" ${normalizeTheme(state.settings.theme) === "night" ? "selected" : ""}>Nacht</option>
-              <option value="day" ${normalizeTheme(state.settings.theme) === "day" ? "selected" : ""}>Dag</option>
-            </select>
           </div>
         </div>
         <button class="btn primary" id="saveSettings">Opslaan</button>
