@@ -1377,6 +1377,12 @@ function measureBottomTabbarHeight(){
   return Math.round(tabbar.getBoundingClientRect().height) || 90;
 }
 
+function measureDetailActionBarHeight(){
+  const bar = document.getElementById("detailActionBar");
+  if (!bar || bar.classList.contains("hidden")) return 0;
+  return Math.round(bar.getBoundingClientRect().height) || 0;
+}
+
 function setBottomBarHeights({ statusVisible = false } = {}){
   const root = document.documentElement;
   const bottomHeight = measureBottomTabbarHeight();
@@ -1413,6 +1419,39 @@ function renderStatusTabbar(content){
     </div>
   `;
   setBottomBarHeights({ statusVisible: true });
+}
+
+function syncDetailBars(){
+  const active = currentView();
+  const isLogDetail = active.view === "logDetail";
+  const bar = document.getElementById("detailActionBar");
+  if (!bar) return;
+
+  if (!isLogDetail){
+    bar.classList.add("hidden");
+    bar.innerHTML = "";
+    bar.setAttribute("aria-hidden", "true");
+    document.documentElement.classList.remove("has-detail-actionbar");
+    document.documentElement.style.setProperty("--detail-actionbar-height", "0px");
+    return;
+  }
+
+  const editing = state.ui.editLogId === active.id;
+  bar.classList.remove("hidden");
+  bar.setAttribute("aria-hidden", "false");
+  bar.innerHTML = `
+    <div class="detail-actionbar-inner">
+      <button class="iconbtn" id="btnLogDetailEdit" type="button" title="${editing ? "Klaar" : "Bewerk"}" aria-label="${editing ? "Klaar" : "Bewerk"}">
+        ${editing
+          ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M5 12l5 5 9-9" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+          : `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 20h9" stroke-linecap="round"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" stroke-linejoin="round"/></svg>`}
+      </button>
+    </div>
+  `;
+
+  bar.querySelector("#btnLogDetailEdit")?.addEventListener("click", ()=> toggleEditLog(active.id));
+  document.documentElement.classList.add("has-detail-actionbar");
+  document.documentElement.style.setProperty("--detail-actionbar-height", `${measureDetailActionBarHeight()}px`);
 }
 
 function syncViewUiState(){
@@ -1476,6 +1515,7 @@ function render(){
       rootPage.className = "page active";
     }
   }
+  syncDetailBars();
   ui.transition = null;
 }
 
@@ -2430,11 +2470,6 @@ function renderLogSheet(id){
             <div class="small mono muted">Werk ${formatMinutesAsDuration(totalWorkMinutes)} • Pauze ${formatMinutesAsDuration(totalBreakMinutes)}</div>
           </div>
           <div class="rowtight">
-            <button class="iconbtn iconbtn-sm" id="toggleEditLog" type="button" title="${editing ? "Klaar" : "Bewerk"}" aria-label="${editing ? "Klaar" : "Bewerk"}">
-              ${editing
-                ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M5 12l5 5 9-9" stroke-linecap="round" stroke-linejoin="round"/></svg>`
-                : `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 20h9" stroke-linecap="round"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" stroke-linejoin="round"/></svg>`}
-            </button>
             ${editing ? `<button class="btn" id="addSegment" type="button">+ segment</button>` : ""}
           </div>
         </div>
@@ -2517,7 +2552,6 @@ function renderLogSheet(id){
     });
   });
 
-  $("#toggleEditLog")?.addEventListener("click", ()=> toggleEditLog(log.id));
 
   $("#addSegment")?.addEventListener("click", ()=>{
     const segId = uid();
