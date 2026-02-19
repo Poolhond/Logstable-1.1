@@ -14,6 +14,7 @@
   --bottom-tabbar-height: 90px;
   --status-tabbar-height: 0px;
   --detail-actionbar-height: 0px;
+  --more-actionbar-height: 0px;
   --topbar-height: 56px;
 
   --r:18px;
@@ -420,6 +421,75 @@ body:not([data-view="settlementDetail"]) #statusTabbarHost{
   width:36px;
   padding:0;
   border-radius:999px;
+}
+
+#moreActionBar.hidden,
+body:not([data-view="meer"]) #moreActionBar{
+  display:none !important;
+  height:0 !important;
+  padding:0 !important;
+  margin:0 !important;
+  border:0 !important;
+}
+
+.more-actionbar{
+  position:fixed;
+  left:0;
+  right:0;
+  z-index:21;
+  bottom: calc(var(--bottom-tabbar-height) + env(safe-area-inset-bottom));
+  background: var(--topbar-bg);
+  backdrop-filter: blur(14px);
+  border-top:1px solid var(--border);
+  padding: 8px 10px;
+}
+
+.more-actionbar-inner{
+  width:min(760px, 100%);
+  margin:0 auto;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  min-height:36px;
+}
+
+.theme-switch{
+  display:inline-flex;
+  align-items:center;
+  justify-content:flex-end;
+  min-height:36px;
+  cursor:pointer;
+}
+
+.theme-switch input{
+  position:absolute;
+  opacity:0;
+  pointer-events:none;
+}
+
+.theme-switch-track{
+  width:48px;
+  height:28px;
+  border-radius:999px;
+  border:1px solid var(--border);
+  background:var(--surface2);
+  padding:2px;
+  display:flex;
+  align-items:center;
+  transition:background .2s ease;
+}
+
+.theme-switch-thumb{
+  width:22px;
+  height:22px;
+  border-radius:50%;
+  background:var(--text);
+  transform:translateX(0);
+  transition:transform .2s ease;
+}
+
+.theme-switch input:checked + .theme-switch-track .theme-switch-thumb{
+  transform:translateX(20px);
 }
 .tab{
   border:1px solid transparent;
@@ -1474,6 +1544,7 @@ h2{
 }
 .meer-layout{
   min-height: calc(100dvh - var(--topbar-height) - var(--bottom-tabbar-height) - var(--status-tabbar-height) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 16px);
+  padding-bottom: calc(var(--more-actionbar-height) + 8px);
   justify-content:flex-end;
 }
 .meer-item{
