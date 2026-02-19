@@ -1,7 +1,3 @@
-import * as stateModule from './state.js';
-import { createNav } from './nav.js';
-import { createActions } from './actions.js';
-import { createRenderer } from './render.js';
 
 /* Tuinlog MVP — 5 boeken + detail sheets
    - Logboek: start/stop/pauze, items toevoegen
@@ -339,7 +335,6 @@ function loadState(){
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw){
     const st = defaultState();
-    seedDemoMonths(st, { months: 3, force: false });
     localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
     return st;
   }
@@ -619,12 +614,12 @@ function clearDemoData(st){
   ensureStateSafetyAfterMutations(st);
 }
 
-let state = stateModule.loadState();
+let state = loadState();
 if (!state.ui?.demoDefaultLoaded){
   const changed = seedDemoMonths(state, { months: 3, force: false });
   state.ui = state.ui || {};
   state.ui.demoDefaultLoaded = true;
-  if (changed) stateModule.saveState(state);
+  if (changed) saveState(state);
 }
 
 // ---------- Computations ----------
@@ -3278,9 +3273,6 @@ if ("serviceWorker" in navigator){
 }
 
 // init
-const nav = createNav();
-const modularActions = createActions({ getState: () => state, setState: (next) => { state = next; }, commit });
-const renderer = createRenderer({ getState: () => state, actions: modularActions, nav, renderImpl: render });
 
 // Quick checks:
 // - Start log -> stop log works
@@ -3292,7 +3284,7 @@ window.addEventListener("resize", ()=>{
   syncViewUiState();
 });
 setTab("logs");
-renderer.render();
+render();
 setBottomBarHeights({ statusVisible: false });
 
 // Timer tick: update active timer display every 15 seconds
