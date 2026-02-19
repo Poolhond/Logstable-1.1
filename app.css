@@ -305,6 +305,16 @@ label{ display:block; font-size:12px; color:var(--muted); margin: 0 0 6px 0; }
   border-radius:10px;
 }
 
+
+#statusTabbarHost.hidden,
+body:not([data-view="settlementDetail"]) #statusTabbarHost{
+  display:none !important;
+  height:0 !important;
+  padding:0 !important;
+  margin:0 !important;
+  border:0 !important;
+}
+
 .tabs,
 .status-tabbar{
   position:fixed; left:0; right:0; bottom:0; z-index:20;

@@ -1399,12 +1399,14 @@ function clearStatusTabbar(){
   const host = document.getElementById("statusTabbarHost");
   if (!host) return;
   host.innerHTML = "";
+  host.classList.add("hidden");
   setBottomBarHeights({ statusVisible: false });
 }
 
 function renderStatusTabbar(content){
   const host = document.getElementById("statusTabbarHost");
   if (!host) return;
+  host.classList.remove("hidden");
   host.innerHTML = `
     <div class="status-tabbar" role="group" aria-label="Afrekening status acties">
       <div class="status-tabbar-inner">${content}</div>
@@ -1413,9 +1415,26 @@ function renderStatusTabbar(content){
   setBottomBarHeights({ statusVisible: true });
 }
 
+function syncViewUiState(){
+  const active = currentView();
+  document.body.dataset.view = active.view || "logs";
+
+  const host = document.getElementById("statusTabbarHost");
+  if (!host) return;
+  if (active.view !== "settlementDetail"){
+    clearStatusTabbar();
+    return;
+  }
+
+  host.classList.remove("hidden");
+  const hasStatus = Boolean(host.querySelector(".status-tabbar"));
+  setBottomBarHeights({ statusVisible: hasStatus });
+}
+
 // ---------- Render ----------
 function render(){
   applyTheme(state.settings?.theme);
+  syncViewUiState();
   const root = ui.navStack[0]?.view || "logs";
   updateTabs();
   if (root === "logs") renderLogs();
@@ -3177,8 +3196,7 @@ const renderer = createRenderer({ getState: () => state, actions: modularActions
 // - Refresh persists state
 installIOSNoZoomGuards();
 window.addEventListener("resize", ()=>{
-  const hasStatus = Boolean(document.querySelector("#statusTabbarHost .status-tabbar"));
-  setBottomBarHeights({ statusVisible: hasStatus });
+  syncViewUiState();
 });
 setTab("logs");
 renderer.render();
