@@ -14,7 +14,7 @@
   --bottom-tabbar-height: 90px;
   --status-tabbar-height: 0px;
   --detail-actionbar-height: 0px;
-  --topbar-height: 64px;
+  --topbar-height: 56px;
 
   --r:18px;
   --pad:16px;
@@ -81,13 +81,35 @@ body{
   background: var(--topbar-bg);
   backdrop-filter: blur(14px);
   border-bottom:1px solid var(--border);
-  padding: calc(10px + env(safe-area-inset-top)) var(--pad) 10px var(--pad);
+  height: calc(var(--topbar-height) + env(safe-area-inset-top));
+  padding: 0 var(--pad);
   display:flex; align-items:center; justify-content:space-between;
 }
-.topbar-left{ display:flex; align-items:center; gap:10px; }
-.titlewrap{ display:flex; flex-direction:column; gap:2px; }
-.apptitle{ font-weight:800; letter-spacing:.2px; line-height:1.2; }
-.topsubtitle{ font-size:12px; color:var(--topsubtitle); line-height:1.2; }
+.topbar-left,
+.topbar-right{
+  padding-top: env(safe-area-inset-top);
+  height: 100%;
+  display:flex;
+  align-items:center;
+}
+.topbar-left{ gap:10px; min-width:0; }
+.titlewrap{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+.apptitle{
+  font-weight:800;
+  letter-spacing:.2px;
+  line-height:1.15;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.topsubtitle{
+  font-size:12px;
+  color:var(--topsubtitle);
+  line-height:1.1;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
 
 .topbar.nav--free{ background: var(--topbar-bg); border-bottom:1px solid var(--border); }
 .topbar.nav--linked{ background: rgba(255,204,0,.18); border-bottom:2px solid rgba(255,204,0,.92); }
@@ -1493,8 +1515,7 @@ h2{
   padding:0 4px 12px;
 }
 .geld-header-title{
-  font-size:18px;
-  font-weight:800;
+  display:none;
 }
 .btn-new-settlement{
   display:inline-flex;
