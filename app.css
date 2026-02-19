@@ -846,6 +846,12 @@ body:not([data-view="settlementDetail"]) #statusTabbarHost{
   grid-template-columns:84px minmax(0,1fr);
 }
 
+.settlement-detail.card-accent--open,
+.settlement-detail.card-accent--calculated,
+.settlement-detail.card-accent--paid{
+  border-left:0;
+}
+
 .log-detail-compact .compact-section{
   border-bottom:1px solid var(--border);
   padding:8px 0;
