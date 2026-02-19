@@ -1,15 +1,10 @@
-const CACHE = "tuinlog-cache-v4";
+const CACHE = "tuinlog-cache-v5";
 const ASSETS = [
   "./",
   "./index.html",
   "./app.css",
   "./manifest.webmanifest",
   "./src/app.js",
-  "./src/state.js",
-  "./src/compute.js",
-  "./src/actions.js",
-  "./src/nav.js",
-  "./src/render.js",
 ];
 
 self.addEventListener("install", (e) => {
