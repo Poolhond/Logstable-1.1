@@ -134,10 +134,10 @@ body{
 }
 
 .card{
-  background: var(--surface);
-  border:1px solid var(--border);
-  border-radius: var(--r);
-  padding: var(--cardPad);
+  background: transparent;
+  border:0;
+  border-radius: 0;
+  padding: 0;
   max-width:100%;
 }
 .stack{ display:flex; flex-direction:column; gap:12px; }
@@ -614,8 +614,9 @@ body:not([data-view="settlementDetail"]) #statusTabbarHost{
   width:100%;
   text-align:left;
   background:transparent;
-  border:1px solid var(--border);
+  border:0;
   color:inherit;
+  padding:8px 0;
 }
 
 .settlement-log-cols{
@@ -655,11 +656,12 @@ body:not([data-view="settlementDetail"]) #statusTabbarHost{
 
 .settlement-totals-button{
   width:100%;
-  border:1px solid var(--border);
+  border:0;
   background:transparent;
   color:inherit;
-  border-radius:12px;
-  padding:8px 10px;
+  border-radius:0;
+  padding:8px 0;
+  border-bottom:1px solid var(--border);
 }
 
 .overview-item-list{
@@ -746,7 +748,76 @@ body:not([data-view="settlementDetail"]) #statusTabbarHost{
 }
 
 .compact-card{
-  padding:var(--cardPad);
+  padding:0;
+}
+
+/* ====== Flat sections for settlement/detail screens ====== */
+.section{
+  padding:14px 16px;
+  border-bottom:1px solid var(--border);
+}
+
+.section:last-child{ border-bottom:0; }
+
+.section-title-row{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:12px;
+}
+
+.section h2{
+  margin:0;
+  font-size:14px;
+  font-weight:600;
+  opacity:.92;
+}
+
+.section-value{
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* ====== Flat list rows (no card backgrounds) ====== */
+.flat-row{
+  padding:10px 0;
+  border-bottom:1px solid var(--border);
+}
+
+.flat-row:last-child{ border-bottom:0; }
+
+/* ====== Compact settlement summaries (view mode) ====== */
+.summary-rows{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-top:10px;
+}
+
+.summary-row{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+}
+
+.summary-row .label{ opacity:.88; }
+.summary-row .num{ font-variant-numeric: tabular-nums; }
+
+.summary-sub{
+  margin-top:2px;
+  font-size:12px;
+  color:var(--muted);
+}
+
+.settlement-detail{
+  gap:0;
+  border-top:1px solid var(--border);
+  border-bottom:1px solid var(--border);
+}
+
+.settlement-detail .section{
+  padding-left:0;
+  padding-right:0;
 }
 
 .settlement-detail .compact-row{
@@ -1164,12 +1235,10 @@ h2{
   padding-left:10px;
 }
 .flat-list .item.card-accent--calculated{
-  background: var(--status-calculated-bg);
   border-left:3px solid rgba(255,140,0,.82);
   padding-left:10px;
 }
 .flat-list .item.card-accent--paid{
-  background: var(--status-paid-bg);
   border-left:3px solid rgba(0,160,90,.82);
   padding-left:10px;
 }
