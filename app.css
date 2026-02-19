@@ -13,6 +13,7 @@
   --tabbar-height: 90px;
   --bottom-tabbar-height: 90px;
   --status-tabbar-height: 0px;
+  --detail-actionbar-height: 0px;
   --topbar-height: 64px;
 
   --r:18px;
@@ -42,6 +43,10 @@ body[data-theme="day"]{
 *{ box-sizing:border-box; }
 html,body{ height:100%; touch-action:manipulation; overflow-x:hidden; }
 
+html.has-detail-actionbar #detailPage .page-inner{
+  padding-bottom: calc(var(--bottom-tabbar-height) + var(--status-tabbar-height) + var(--detail-actionbar-height) + env(safe-area-inset-bottom));
+}
+
 button, a, input, select, textarea{ touch-action:manipulation; }
 body{
   margin:0;
@@ -59,7 +64,13 @@ body{
   background: var(--chrome-bg);
 }
 
-.hidden{ display:none !important; }
+.hidden{
+  display:none !important;
+  height:0 !important;
+  padding:0 !important;
+  margin:0 !important;
+  border:0 !important;
+}
 
 .topbar{
   position:fixed;
@@ -357,6 +368,34 @@ body:not([data-view="settlementDetail"]) #statusTabbarHost{
 
 .status-tabbar #btnSettlementEdit{
   min-height:36px;
+  padding:0;
+  border-radius:999px;
+}
+
+
+.detail-actionbar{
+  position:fixed;
+  left:0;
+  right:0;
+  z-index:22;
+  bottom: calc(var(--bottom-tabbar-height) + env(safe-area-inset-bottom));
+  background: var(--topbar-bg);
+  backdrop-filter: blur(14px);
+  border-top:1px solid var(--border);
+  padding: 8px 10px;
+}
+
+.detail-actionbar-inner{
+  width:min(760px, 100%);
+  margin:0 auto;
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;
+}
+
+.detail-actionbar .iconbtn{
+  min-height:36px;
+  width:36px;
   padding:0;
   border-radius:999px;
 }
