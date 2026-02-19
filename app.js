@@ -2670,7 +2670,7 @@ function renderSettlementLogOverviewSheet(settlementId){
 
   $('#sheetActions').innerHTML = '';
   $('#sheetBody').innerHTML = `
-    <div class="stack settlement-overview">
+    <div class="stack settlement-overview settlement-detail">
       ${linkedLogs.map(log=>{
         const workMinutes = Math.floor(sumWorkMs(log) / 60000);
         const itemRows = (log.items || []).map(item=>{
@@ -2680,8 +2680,8 @@ function renderSettlementLogOverviewSheet(settlementId){
         }).join('') || `<div class="small">Geen producten</div>`;
 
         return `
-          <div class="card stack compact-card">
-            <div class="settlement-log-cols mono tabular">
+          <div class="section stack">
+            <div class="settlement-log-cols mono tabular flat-row">
               <span class="log-col-date">${esc(formatDatePretty(log.date))}</span>
               <span class="log-col-time">${formatDurationCompact(workMinutes)}</span>
               <span class="log-col-price">${formatMoneyEUR(sumItemsAmount(log))}</span>
@@ -2690,9 +2690,9 @@ function renderSettlementLogOverviewSheet(settlementId){
             <div class="overview-item-list">${itemRows}</div>
           </div>
         `;
-      }).join('') || `<div class="card compact-card"><div class="small">Geen gekoppelde logs.</div></div>`}
+      }).join('') || `<div class="section"><div class="small">Geen gekoppelde logs.</div></div>`}
 
-      <div class="card stack compact-card">
+      <div class="section stack">
         <h2>Totalen</h2>
         <div class="overview-totals-grid mono tabular">
           <span>Totaal werktijd</span><strong>${formatMinutesAsDuration(totalWorkMinutes)}</strong>
@@ -2740,9 +2740,9 @@ function renderSettlementSheet(id){
         </div>
       </div>
 
-      <div class="card stack compact-card">
-        <div class="row space"><h2>Gekoppelde logs</h2>${isEdit ? `<button class="btn" id="btnRecalc">Herbereken uit logs</button>` : ""}</div>
-        <div class="list" id="sLogs">
+      <div class="section stack">
+        <div class="section-title-row"><h2>Gekoppelde logs</h2>${isEdit ? `<button class="btn" id="btnRecalc">Herbereken uit logs</button>` : ""}</div>
+        <div class="flat-list" id="sLogs">
           ${availableLogs.slice(0,30).map(l=>{
             const checked = (s.logIds||[]).includes(l.id);
             const rowMeta = `
@@ -2753,38 +2753,38 @@ function renderSettlementSheet(id){
                 <span class="log-col-products">${countExtraProducts(l)}</span>
               </div>`;
             if (isEdit){
-              return `<label class="item item-compact"><div class="item-main">${rowMeta}</div><div class="item-right"><input type="checkbox" data-logpick="${l.id}" ${checked ? "checked" : ""}/></div></label>`;
+              return `<label class="flat-row"><div class="row space"><div class="item-main">${rowMeta}</div><div class="item-right"><input type="checkbox" data-logpick="${l.id}" ${checked ? "checked" : ""}/></div></div></label>`;
             }
             if (!checked) return "";
-            return `<button class="item item-compact item-row-button" type="button" role="button" data-open-linked-log="${l.id}"><div class="item-main">${rowMeta}</div></button>`;
+            return `<button class="flat-row item-row-button" type="button" role="button" data-open-linked-log="${l.id}"><div class="item-main">${rowMeta}</div></button>`;
           }).join('') || `<div class="small">Geen gekoppelde logs.</div>`}
         </div>
       </div>
 
-      <div class="card stack compact-card">
-        <h2>Logboek totaal</h2>
+      <div class="section stack">
+        <div class="section-title-row"><h2>Logboek totaal</h2></div>
         ${isEdit ? `<div class="settlement-totals-row mono tabular"><span class="totals-time">${formatDurationCompact(Math.floor(summary.totalWorkMs/60000))}</span><span class="totals-price">${formatMoneyEUR(summary.totalLogPrice)}</span><span class="totals-products">${summary.linkedCount}</span></div>` : `<button class="settlement-totals-row settlement-totals-button mono tabular" id="openSettlementOverview" type="button"><span class="totals-time">${formatDurationCompact(Math.floor(summary.totalWorkMs/60000))}</span><span class="totals-price">${formatMoneyEUR(summary.totalLogPrice)}</span><span class="totals-products">${summary.linkedCount}</span></button>`}
       </div>
 
-      <div class="card stack compact-card">
-        <div class="row space"><h2>Factuur</h2><div class="mono tabular">${formatMoneyEUR(pay.invoiceTotal)}</div></div>
+      <div class="section stack">
+        <div class="section-title-row"><h2>Factuur</h2><div class="section-value">${formatMoneyEUR(pay.invoiceTotal)}</div></div>
         ${renderLinesTable(s, 'invoice', { readOnly: !isEdit })}
         ${isEdit ? `<button class="btn" id="addInvoiceLine">+ regel</button>` : ""}
       </div>
 
-      <div class="card stack compact-card">
-        <div class="row space"><h2>Cash</h2><div class="mono tabular">${formatMoneyEUR(pay.cashTotal)}</div></div>
+      <div class="section stack">
+        <div class="section-title-row"><h2>Cash</h2><div class="section-value">${formatMoneyEUR(pay.cashTotal)}</div></div>
         ${renderLinesTable(s, 'cash', { readOnly: !isEdit })}
         ${isEdit ? `<button class="btn" id="addCashLine">+ regel</button>` : ""}
       </div>
 
-      <div class="card stack compact-card">
+      <div class="section stack">
         <h2>Notitie</h2>
         ${isEdit ? `<textarea id="sNote" rows="3">${esc(s.note||"")}</textarea>` : `<div class="small">${esc(s.note||"—")}</div>`}
       </div>
 
       ${isEdit ? `
-      <div class="card stack compact-card">
+      <div class="section stack">
         <h2>Acties</h2>
         <div class="compact-row"><label>Klant</label><div><select id="sCustomer">${customerOptions}</select></div></div>
         <div class="compact-row"><label>Datum</label><div><input id="sDate" type="date" value="${esc(s.date||todayISO())}" /></div></div>
@@ -2931,6 +2931,36 @@ function renderSettlementSheet(id){
 function renderLinesTable(settlement, bucket, { readOnly = false } = {}){
   const lines = (settlement.lines||[]).filter(l => (l.bucket||'invoice')===bucket);
   const totals = settlementTotals(settlement);
+
+  if (readOnly){
+    const compactRows = (lines.map(l=>{
+      const rowTotal = lineAmount(l);
+      const productLabel = esc((getProduct(l.productId)?.name) || l.name || l.description || '—');
+      const qty = Number(l.qty) || 0;
+      const unitPrice = Number(l.unitPrice) || 0;
+      const showMeta = qty > 0 || unitPrice > 0;
+      return `
+        <div class="summary-row">
+          <div>
+            <div class="label">${productLabel}</div>
+            ${showMeta ? `<div class="summary-sub mono">${qty > 0 ? qty : '—'} × ${formatMoneyEUR(unitPrice)}</div>` : ''}
+          </div>
+          <div class="num mono">${formatMoneyEUR(rowTotal)}</div>
+        </div>
+      `;
+    }).join('')) || `<div class="small">Geen regels</div>`;
+
+    const compactTotals = bucket === 'invoice'
+      ? `
+        <div class="summary-row"><span class="label">Subtotaal</span><span class="num mono">${formatMoneyEUR(totals.invoiceSubtotal)}</span></div>
+        <div class="summary-row"><span class="label">BTW</span><span class="num mono">${formatMoneyEUR(totals.invoiceVat)}</span></div>
+        <div class="summary-row"><span class="label"><strong>Totaal</strong></span><span class="num mono"><strong>${formatMoneyEUR(totals.invoiceTotal)}</strong></span></div>
+      `
+      : `<div class="summary-row"><span class="label"><strong>Totaal</strong></span><span class="num mono"><strong>${formatMoneyEUR(totals.cashTotal)}</strong></span></div>`;
+
+    return `<div class="summary-rows">${compactRows}${compactTotals}</div>`;
+  }
+
   const footer = bucket === 'invoice'
     ? `
       <div class="settlement-lines-footer mono tabular">
@@ -2956,14 +2986,12 @@ function renderLinesTable(settlement, bucket, { readOnly = false } = {}){
         return `
           <div class="settlement-lines-grid settlement-lines-row">
             <div>
-              ${readOnly
-                ? `<div class="settlement-cell-readonly">${esc((getProduct(productValue)?.name) || l.name || l.description || '—')}</div>`
-                : `<select class="settlement-cell-input" data-line-product="${l.id}"><option value="">Kies product</option>${state.products.map(p=>`<option value="${p.id}" ${p.id===productValue?"selected":""}>${esc(p.name)}${p.unit ? ` (${esc(p.unit)})` : ''}</option>`).join('')}</select>`}
+              <select class="settlement-cell-input" data-line-product="${l.id}"><option value="">Kies product</option>${state.products.map(p=>`<option value="${p.id}" ${p.id===productValue?"selected":""}>${esc(p.name)}${p.unit ? ` (${esc(p.unit)})` : ''}</option>`).join('')}</select>
             </div>
-            <div>${readOnly ? `<div class="settlement-cell-readonly mono tabular">${esc((l.qty ?? '') === '' ? '—' : String(l.qty))}</div>` : `<input class="settlement-cell-input mono tabular" data-line-qty="${l.id}" inputmode="decimal" value="${esc((l.qty ?? '') === 0 ? '' : String(l.qty ?? ''))}" />`}</div>
-            <div>${readOnly ? `<div class="settlement-cell-readonly mono tabular">${formatMoneyEUR(Number(l.unitPrice)||0)}</div>` : `<input class="settlement-cell-input mono tabular" data-line-price="${l.id}" inputmode="decimal" value="${esc((l.unitPrice ?? '') === 0 ? '' : String(l.unitPrice ?? ''))}" />`}</div>
+            <div><input class="settlement-cell-input mono tabular" data-line-qty="${l.id}" inputmode="decimal" value="${esc((l.qty ?? '') === 0 ? '' : String(l.qty ?? ''))}" /></div>
+            <div><input class="settlement-cell-input mono tabular" data-line-price="${l.id}" inputmode="decimal" value="${esc((l.unitPrice ?? '') === 0 ? '' : String(l.unitPrice ?? ''))}" /></div>
             <div class="num mono tabular">${formatMoneyEUR(rowTotal)}</div>
-            <div>${readOnly ? '' : `<button class="iconbtn settlement-trash" data-line-del="${l.id}" title="Verwijder"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18" stroke-linecap="round"/><path d="M8 6V4h8v2"/><path d="M6 6l1 16h10l1-16"/><path d="M10 11v6M14 11v6" stroke-linecap="round"/></svg></button>`}</div>
+            <div><button class="iconbtn settlement-trash" data-line-del="${l.id}" title="Verwijder"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18" stroke-linecap="round"/><path d="M8 6V4h8v2"/><path d="M6 6l1 16h10l1-16"/><path d="M10 11v6M14 11v6" stroke-linecap="round"/></svg></button></div>
           </div>
         `;
       }).join('')) || `<div class="small">Geen regels</div>`}
