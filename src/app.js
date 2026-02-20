@@ -1038,7 +1038,7 @@ const actions = {
       const log = state.logs.find(l => l.id === logId);
       if (!log) return;
       const s = {
-        id: uid(), customerId: log.customerId, date: todayISO(), createdAt: now(), logIds: [logId], lines: [],
+        id: uid(), customerId: log.customerId, date: log.date, createdAt: now(), logIds: [logId], lines: [],
         status: "draft", markedCalculated: false, isCalculated: false, calculatedAt: null,
         invoiceAmount: 0, cashAmount: 0, invoicePaid: false, cashPaid: false
       };
@@ -1052,6 +1052,12 @@ const actions = {
     s.logIds = Array.from(new Set([...(s.logIds || []), logId]));
     const prev = new Map((s.lines || []).map(li => [li.productId + "|" + li.description, li.bucket]));
     s.lines = computeSettlementFromLogs(s.customerId, s.logIds).lines.map(li => ({ ...li, bucket: prev.get(li.productId + "|" + li.description) || li.bucket }));
+    const linkedLogs = (s.logIds || [])
+      .map(id => state.logs.find(l => l.id === id))
+      .filter(Boolean);
+    if (linkedLogs.length) {
+      s.date = linkedLogs.map(l => l.date).sort().pop();
+    }
     commit();
     return s;
   },
@@ -2755,14 +2761,20 @@ function renderLogItems(log){
   `;
 }
 
+function fmtDateShort(isoDate) {
+  const [y, m, d] = isoDate.split("-");
+  const months = ["jan","feb","mrt","apr","mei","jun","jul","aug","sep","okt","nov","dec"];
+  return `${parseInt(d, 10)} ${months[parseInt(m, 10) - 1]}`;
+}
+
 function buildSettlementSelectOptions(customerId, currentSettlementId){
   const options = [];
   options.push(`<option value="none"${!currentSettlementId?" selected":""}>Niet gekoppeld</option>`);
   const list = state.settlements
-    .filter(s => s.customerId === customerId)
+    .filter(s => s.customerId === customerId && (s.id === currentSettlementId || !isSettlementPaid(s)))
     .sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   for (const s of list){
-    const label = `${s.date} — ${statusLabelNL(s.status)} — logs ${(s.logIds||[]).length}`;
+    const label = `${fmtDateShort(s.date)} — ${statusLabelNL(s.status)} — logs ${(s.logIds||[]).length}`;
     options.push(`<option value="${s.id}" ${s.id===currentSettlementId?"selected":""}>${esc(label)}</option>`);
   }
   options.push(`<option value="new">+ Nieuwe afrekening aanmaken…</option>`);
