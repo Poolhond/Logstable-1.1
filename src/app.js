@@ -8,6 +8,7 @@
 */
 
 const STORAGE_KEY = "tuinlog_mvp_v1";
+const START_TOP_LIMIT = 8;
 const $ = (s) => document.querySelector(s);
 const NAV_TRANSITION_MS = 240;
 const NAV_TRANSITION_EASING = "cubic-bezier(0.22, 0.61, 0.36, 1)";
@@ -214,8 +215,8 @@ function defaultState(){
     schemaVersion: 1,
     settings: { hourlyRate: 38, vatRate: 0.21, theme: "night" },
     customers: [
-      { id: uid(), nickname:"Van de Werf", name:"", address:"Heverlee, Leuven", createdAt: now() },
-      { id: uid(), nickname:"Kessel-Lo tuin", name:"", address:"Kessel-Lo, Leuven", createdAt: now() },
+      { id: uid(), nickname:"Jules", name:"", address:"Heverlee, Leuven", createdAt: now() },
+      { id: uid(), nickname:"Noor", name:"", address:"Kessel-Lo, Leuven", createdAt: now() },
     ],
     products: [
       { id: uid(), name:"Werk", unit:"uur", unitPrice:38, vatRate:0.21, defaultBucket:"invoice" },
@@ -405,7 +406,7 @@ const DEMO = {
   lastNames: ["Peeters", "Janssens", "Van den Broeck", "Wouters", "Claes", "Lambrechts", "Maes", "Vermeulen", "Hermans", "Goossens", "De Smet", "Schreurs", "Leclercq", "Van Acker", "Bogaert", "Pieters", "Nijs", "Declercq"],
   streets: ["Naamsesteenweg", "Tiensevest", "Diestsesteenweg", "Tervuursesteenweg", "Geldenaaksebaan", "Kapucijnenvoer", "Ridderstraat", "Brusselsestraat", "Parkstraat", "Molenstraat", "Blandenstraat"],
   zones: ["Heverlee", "Kessel-Lo", "Wilsele", "Herent", "Leuven", "Wijgmaal", "Haasrode", "Bertem"],
-  nicknames: ["achtertuin", "voortuin", "haag", "gazons", "border", "moestuin", "terras", "oprit"]
+  nicknames: ["Jules", "Noor", "Milo", "Tess", "Lina", "Bram", "Nina", "Otis", "Fien", "Wout"]
 };
 
 function ri(min, max){ return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -477,7 +478,7 @@ function seedDemoMonths(st, { months = 3, force = false } = {}){
     const street = pick(DEMO.streets);
     const zone = pick(DEMO.zones);
     const nr = ri(1, 180);
-    const nick = `${ln.split(" ")[0]} ${pick(DEMO.nicknames)}`;
+    const nick = pick(DEMO.nicknames);
     const frequent = i < 10;
     const settlementRhythm = rhythmList[i];
     customers.push({
@@ -815,6 +816,20 @@ function sumWorkMs(log){
     t += Math.max(0, end - s.start);
   }
   return t;
+}
+function customerMinutesLastYear(){
+  const totals = new Map();
+  const yearAgoMs = now() - 365 * 86400000;
+
+  for (const log of (state.logs || [])){
+    if (!log?.customerId) continue;
+    const startedAt = Number(log.createdAt || 0);
+    if (startedAt < yearAgoMs) continue;
+    const minutes = Math.floor(sumWorkMs(log) / 60000);
+    totals.set(log.customerId, (totals.get(log.customerId) || 0) + minutes);
+  }
+
+  return totals;
 }
 function sumBreakMs(log){
   let t=0;
@@ -1536,6 +1551,12 @@ $("#btnNewLog").onclick = ()=>{
   pushView({ view: "newLog" });
 };
 
+document.addEventListener("click", (event)=>{
+  const trigger = event.target.closest("[data-open-customers]");
+  if (!trigger) return;
+  openCustomersChooser();
+});
+
 function createSettlement(){
   return actions.createSettlement();
 }
@@ -1549,6 +1570,14 @@ function startWorkLog(customerId){
   const log = actions.startLog(customerId);
   if (!log) return;
   if (ui.navStack.length > 1) popView();
+}
+
+function openCustomersChooser(){
+  const active = currentView();
+  if (active.view === "customers") return;
+  if (active.view === "customerDetail") return;
+  if (!ui.navStack.length || ui.navStack[0].view !== "meer") setTab("meer");
+  pushView({ view: "customers" });
 }
 
 function openSheet(type, id){
@@ -1906,23 +1935,35 @@ function renderLogs(){
       </div>
     `;
   } else {
-    // Idle state: recent customers quick start
-    const recentCustomerIds = [...new Set(
-      state.logs
-        .filter(l => l.customerId)
-        .sort((a,b) => (b.createdAt||0) - (a.createdAt||0))
-        .map(l => l.customerId)
-    )].slice(0, 6);
-    const recentChips = recentCustomerIds
-      .map(cid => {
-        const c = getCustomer(cid);
-        if (!c) return "";
-        return `<button class="recent-customer-chip" data-start-customer="${esc(cid)}">${esc(c.nickname || c.name || "Klant")}</button>`;
-      }).filter(Boolean).join("");
+    const totals = customerMinutesLastYear();
+    const favorites = state.customers.filter(c => c.favorite);
+    const autoSorted = [...state.customers].sort((a, b) => (totals.get(b.id) || 0) - (totals.get(a.id) || 0));
+
+    let selected;
+    if (favorites.length > 0){
+      selected = [...favorites];
+      for (const customer of autoSorted){
+        if (selected.some(item => item.id === customer.id)) continue;
+        selected.push(customer);
+        if (selected.length >= START_TOP_LIMIT) break;
+      }
+    } else {
+      selected = autoSorted.slice(0, START_TOP_LIMIT);
+    }
+
+    selected.sort((a, b) => (totals.get(b.id) || 0) - (totals.get(a.id) || 0));
+    const cloud = selected.slice(0, START_TOP_LIMIT).map(c => `
+      <button class="cloud-chip" data-start-customer="${esc(c.id)}">
+        ${esc(c.nickname || c.name || "Klant")}
+      </button>
+    `).join("");
 
     timerBlock = `
-      <div class="timer-idle">
-        ${recentChips ? `<div class="timer-idle-sub">start</div><div class="recent-customers">${recentChips}</div>` : `<div class="timer-idle-sub">Maak eerst een klant aan via Meer</div>`}
+      <div class="start-block">
+        <div class="timer-idle">
+          ${cloud ? `<div class="start-cloud">${cloud}</div>` : `<div class="timer-idle-sub">Maak eerst een klant aan via Meer</div>`}
+          <button class="start-choose" data-open-customers="1">kies</button>
+        </div>
       </div>
     `;
   }
