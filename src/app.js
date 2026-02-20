@@ -1551,12 +1551,6 @@ $("#btnNewLog").onclick = ()=>{
   pushView({ view: "newLog" });
 };
 
-document.addEventListener("click", (event)=>{
-  const trigger = event.target.closest("[data-open-customers]");
-  if (!trigger) return;
-  openCustomersChooser();
-});
-
 function createSettlement(){
   return actions.createSettlement();
 }
@@ -1570,14 +1564,6 @@ function startWorkLog(customerId){
   const log = actions.startLog(customerId);
   if (!log) return;
   if (ui.navStack.length > 1) popView();
-}
-
-function openCustomersChooser(){
-  const active = currentView();
-  if (active.view === "customers") return;
-  if (active.view === "customerDetail") return;
-  if (!ui.navStack.length || ui.navStack[0].view !== "meer") setTab("meer");
-  pushView({ view: "customers" });
 }
 
 function openSheet(type, id){
@@ -1962,7 +1948,6 @@ function renderLogs(){
       <div class="start-block">
         <div class="timer-idle">
           ${cloud ? `<div class="start-cloud">${cloud}</div>` : `<div class="timer-idle-sub">Maak eerst een klant aan via Meer</div>`}
-          <button class="start-choose" data-open-customers="1">kies</button>
         </div>
       </div>
     `;
