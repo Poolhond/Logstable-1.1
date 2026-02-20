@@ -402,7 +402,7 @@ function saveState(nextState = state){ localStorage.setItem(STORAGE_KEY, JSON.st
 
 const DEMO = {
   firstNames: ["Jan", "Els", "Koen", "Sofie", "Lotte", "Tom", "An", "Pieter", "Nina", "Wim", "Bram", "Fien", "Arne", "Joke", "Raf", "Mira", "Tine", "Milan"],
-  lastNames: ["Peeters", "Janssens", "Van den Broeck", "Wouters", "Claes", "Lambrechts", "Maes", "Vermeulen", "Hermans", "Goossens", "De Smet", "Schreurs"],
+  lastNames: ["Peeters", "Janssens", "Van den Broeck", "Wouters", "Claes", "Lambrechts", "Maes", "Vermeulen", "Hermans", "Goossens", "De Smet", "Schreurs", "Leclercq", "Van Acker", "Bogaert", "Pieters", "Nijs", "Declercq"],
   streets: ["Naamsesteenweg", "Tiensevest", "Diestsesteenweg", "Tervuursesteenweg", "Geldenaaksebaan", "Kapucijnenvoer", "Ridderstraat", "Brusselsestraat", "Parkstraat", "Molenstraat", "Blandenstraat"],
   zones: ["Heverlee", "Kessel-Lo", "Wilsele", "Herent", "Leuven", "Wijgmaal", "Haasrode", "Bertem"],
   nicknames: ["achtertuin", "voortuin", "haag", "gazons", "border", "moestuin", "terras", "oprit"]
@@ -444,40 +444,107 @@ function seedDemoMonths(st, { months = 3, force = false } = {}){
   const greenProduct = st.products.find(p => (p.name||"").trim().toLowerCase() === "groen");
   if (!workProduct || !greenProduct) return false;
 
-  const customerCount = ri(3, 5);
-  const logCount = ri(40, 90);
-  const settlementCount = ri(15, 35);
+  const DEMO_NOTES = [
+    "Haag gesnoeid voor- en achterkant",
+    "Gazon gemaaid en borders bijgewerkt",
+    "Onkruid gewied moestuin",
+    "Snoeiafval afgevoerd",
+    "Conifeer teruggesnoeid",
+    "Rozen gesnoeid en bemest",
+    "Oprit onkruidvrij gemaakt",
+    "Nieuwe border aangelegd",
+    "Bladeren geruimd",
+    "Terras schoongemaakt en onkruid verwijderd",
+    "Fruitbomen gesnoeid",
+    "Herfstonderhoud",
+    "Lenteschoonmaak",
+    "Taxus in vorm gesnoeid"
+  ];
 
+  // 15 customers: 10 frequent, 5 rare
+  // settlementRhythm: 3 direct, 7 monthly, 5 quarterly (shuffled across customers)
+  const rhythmList = ["direct","direct","direct","monthly","monthly","monthly","monthly","monthly","monthly","monthly","quarterly","quarterly","quarterly","quarterly","quarterly"];
+  const usedNames = new Set();
   const customers = [];
-  for (let i = 0; i < customerCount; i++){
-    const fn = pick(DEMO.firstNames);
-    const ln = pick(DEMO.lastNames);
+  for (let i = 0; i < 15; i++){
+    let fn, ln, nameKey;
+    do {
+      fn = pick(DEMO.firstNames);
+      ln = pick(DEMO.lastNames);
+      nameKey = `${fn}|${ln}`;
+    } while (usedNames.has(nameKey));
+    usedNames.add(nameKey);
     const street = pick(DEMO.streets);
     const zone = pick(DEMO.zones);
     const nr = ri(1, 180);
     const nick = `${ln.split(" ")[0]} ${pick(DEMO.nicknames)}`;
+    const frequent = i < 10;
+    const settlementRhythm = rhythmList[i];
     customers.push({
       id: uid(),
       nickname: nick,
       name: `${fn} ${ln}`,
       address: `${street} ${nr}, ${zone}, Leuven`,
-      createdAt: now() - ri(15, 90) * 86400000,
-      demo: true
+      createdAt: now() - ri(30, months * 30) * 86400000,
+      demo: true,
+      frequent,
+      settlementRhythm
     });
   }
 
-  const logs = [];
-  for (let i = 0; i < logCount; i++){
-    const customer = pick(customers);
-    const daysBack = ri(0, months * 31 - 1);
-    const date = demoDateISO(daysBack);
-    const startHour = ri(7, 10);
-    const startMin = pick([0, 15, 30, 45]);
-    const firstDurMin = ri(90, 220);
-    const breakMin = Math.random() < 0.35 ? ri(10, 35) : 0;
-    const secondDurMin = Math.random() < 0.55 ? ri(60, 180) : 0;
+  const frequentCustomers = customers.filter(c => c.frequent);
+  const rareCustomers = customers.filter(c => !c.frequent);
 
-    const start = new Date(`${date}T${pad2(startHour)}:${pad2(startMin)}:00`).getTime();
+  // Track rare customer visits per quarter: key = `${customerId}-${year}-Q${q}`
+  const rareVisitCount = new Map();
+
+  // Anchor to this week's Monday so weeks align to calendar
+  const nowMs = Date.now();
+  const nowDateObj = new Date(nowMs);
+  nowDateObj.setHours(0, 0, 0, 0);
+  const thisMondayMs = nowDateObj.getTime() - ((nowDateObj.getDay() + 6) % 7) * 86400000;
+  const totalWeeks = Math.ceil(months * 30.44 / 7);
+
+  const logs = [];
+  const usedSlots = new Set(); // `${customerId}-${dateISO}` prevents duplicate logs
+
+  function getSeasonMult(month){
+    if (month >= 2 && month <= 4) return 1.2;  // lente: mrt-mei
+    if (month >= 5 && month <= 7) return 1.0;  // zomer: jun-aug
+    if (month >= 8 && month <= 10) return 0.9; // herfst: sep-nov
+    return 0.7;                                 // winter: dec-feb
+  }
+
+  function makeLog(customer, dateISO, shiftType){
+    const slotKey = `${customer.id}-${dateISO}`;
+    if (usedSlots.has(slotKey)) return null;
+    usedSlots.add(slotKey);
+
+    const month = new Date(dateISO).getMonth();
+    const isWinter = month <= 1 || month === 11;
+
+    let startHour, startMin, firstDurMin, breakMin, secondDurMin;
+    if (shiftType === "evening"){
+      startHour = ri(17, 19);
+      startMin = pick([0, 15, 30]);
+      firstDurMin = ri(60, 120);
+      breakMin = 0;
+      secondDurMin = 0;
+    } else if (shiftType === "fullday"){
+      startHour = ri(7, 8);
+      startMin = pick([0, 30]);
+      firstDurMin = ri(180, 240);
+      breakMin = ri(20, 40);
+      secondDurMin = ri(150, 240);
+    } else {
+      startHour = ri(7, 9);
+      startMin = pick([0, 15, 30, 45]);
+      firstDurMin = isWinter ? ri(90, 150) : ri(90, 220);
+      breakMin = Math.random() < 0.35 ? ri(10, 35) : 0;
+      secondDurMin = isWinter ? 0 : (Math.random() < 0.55 ? ri(60, 180) : 0);
+    }
+
+    const start = new Date(`${dateISO}T${pad2(startHour)}:${pad2(startMin)}:00`).getTime();
     const firstEnd = start + firstDurMin * 60000;
     const breakEnd = firstEnd + breakMin * 60000;
     const finalEnd = breakEnd + secondDurMin * 60000;
@@ -493,56 +560,117 @@ function seedDemoMonths(st, { months = 3, force = false } = {}){
       { id: uid(), productId: greenProduct.id, qty: greenQty, unitPrice: 38, note:"" }
     ];
 
-    logs.push({
+    return {
       id: uid(),
       customerId: customer.id,
-      date,
+      date: dateISO,
       createdAt: start,
       closedAt: finalEnd,
-      note: Math.random() < 0.3 ? pick(["Onderhoud", "Snoeiwerk", "Border opgefrist", "Seizoensbeurt"]) : "",
+      note: Math.random() < 0.5 ? pick(DEMO_NOTES) : "",
       segments,
       items,
       demo: true
-    });
+    };
   }
 
-  logs.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+  // Build logs week by week (w=0 is oldest, w=totalWeeks-1 is current week)
+  for (let w = 0; w < totalWeeks; w++){
+    const weekMondayMs = thisMondayMs - (totalWeeks - 1 - w) * 7 * 86400000;
+    const weekDate = new Date(weekMondayMs);
+    const month = weekDate.getMonth();
+    const year = weekDate.getFullYear();
 
-  const settlements = [];
+    if (Math.random() > 0.85 * getSeasonMult(month)) continue; // vrije week
+
+    // Kies 2-4 werkdagen (maandag=0 t/m vrijdag=4)
+    const numWorkDays = ri(2, 4);
+    const allDays = [0, 1, 2, 3, 4];
+    for (let k = allDays.length - 1; k > 0; k--){
+      const j = Math.floor(Math.random() * (k + 1));
+      [allDays[k], allDays[j]] = [allDays[j], allDays[k]];
+    }
+    const workDays = allDays.slice(0, numWorkDays).sort((a, b) => a - b);
+
+    let di = 0;
+    while (di < workDays.length){
+      const dayOffset = workDays[di];
+      const dayMs = weekMondayMs + dayOffset * 86400000;
+      if (dayMs > nowMs){ di++; continue; }
+      const dateISO = new Date(dayMs).toISOString().slice(0, 10);
+
+      const shiftRoll = Math.random();
+      const shiftType = shiftRoll < 0.05 ? "evening" : (shiftRoll < 0.15 ? "fullday" : "normal");
+
+      // Multi-day project: 15% kans als de volgende werkdag ook de volgende kalenderdag is
+      let projectLen = 1;
+      if (shiftType === "normal" && Math.random() < 0.15 && di + 1 < workDays.length && workDays[di + 1] === workDays[di] + 1){
+        projectLen = 2;
+        if (di + 2 < workDays.length && workDays[di + 2] === workDays[di] + 2 && Math.random() < 0.4) projectLen = 3;
+      }
+
+      if (projectLen > 1){
+        const projectCustomer = pick(frequentCustomers);
+        for (let pd = 0; pd < projectLen && di < workDays.length; pd++, di++){
+          const pdMs = weekMondayMs + workDays[di] * 86400000;
+          if (pdMs > nowMs) break;
+          const pdISO = new Date(pdMs).toISOString().slice(0, 10);
+          const log = makeLog(projectCustomer, pdISO, "normal");
+          if (log) logs.push(log);
+        }
+      } else {
+        // Normaal: 1 of 2 klanten op dezelfde dag (25% kans op 2)
+        const numClients = (shiftType === "evening" || shiftType === "fullday") ? 1 : (Math.random() < 0.25 ? 2 : 1);
+        for (let slot = 0; slot < numClients; slot++){
+          let customer;
+          if (Math.random() < 0.75){
+            customer = pick(frequentCustomers);
+          } else {
+            const quarter = Math.floor(month / 3);
+            const eligibleRare = rareCustomers.filter(c => (rareVisitCount.get(`${c.id}-${year}-Q${quarter}`) || 0) < 1);
+            if (eligibleRare.length > 0){
+              customer = pick(eligibleRare);
+              const rk = `${customer.id}-${year}-Q${quarter}`;
+              rareVisitCount.set(rk, (rareVisitCount.get(rk) || 0) + 1);
+            } else {
+              customer = pick(frequentCustomers);
+            }
+          }
+          const log = makeLog(customer, dateISO, slot === 0 ? shiftType : "normal");
+          if (log) logs.push(log);
+        }
+        di++;
+      }
+    }
+  }
+
+  logs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+  // Group logs by customer
   const logsByCustomer = new Map();
   for (const l of logs){
     if (!logsByCustomer.has(l.customerId)) logsByCustomer.set(l.customerId, []);
     logsByCustomer.get(l.customerId).push(l);
   }
-  for (const arr of logsByCustomer.values()) arr.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
 
-  const target = Math.min(settlementCount, Math.max(1, logs.length));
-  for (let i = 0; i < target; i++){
-    const cid = pick([...logsByCustomer.keys()]);
-    const pool = logsByCustomer.get(cid).filter(l => !l._used);
-    if (!pool.length) continue;
-    const take = pool.slice(0, ri(1, Math.min(6, pool.length)));
-    take.forEach(l => { l._used = true; });
-
+  // Helper: build settlement lines from a group of logs
+  function makeLinesFromLogs(logsArr){
     const summary = { workQty: 0, greenQty: 0 };
-    for (const log of take){
-      for (const it of (log.items||[])){
-        if (it.productId === workProduct.id) summary.workQty += Number(it.qty)||0;
-        if (it.productId === greenProduct.id) summary.greenQty += Number(it.qty)||0;
+    for (const log of logsArr){
+      for (const it of (log.items || [])){
+        if (it.productId === workProduct.id) summary.workQty += Number(it.qty) || 0;
+        if (it.productId === greenProduct.id) summary.greenQty += Number(it.qty) || 0;
       }
     }
     summary.workQty = round2(summary.workQty);
     summary.greenQty = round2(summary.greenQty);
-
     const scenarioPick = Math.random();
     const scenario = scenarioPick < 0.35 ? "invoice" : (scenarioPick < 0.70 ? "cash" : "mixed");
     const lines = [];
-    const pushLine = ({ bucket, productId, description, unit, qty, unitPrice, vatRate })=>{
-      const nQty = round2(Number(qty)||0);
+    const pushLine = ({ bucket, productId, description, unit, qty, unitPrice, vatRate }) => {
+      const nQty = round2(Number(qty) || 0);
       if (nQty <= 0) return;
       lines.push({ id: uid(), bucket, productId, description, unit, qty: nQty, unitPrice, vatRate });
     };
-
     if (scenario === "invoice"){
       pushLine({ bucket:"invoice", productId: workProduct.id, description:"Werk", unit:"uur", qty: summary.workQty, unitPrice:38, vatRate:0.21 });
       pushLine({ bucket:"invoice", productId: greenProduct.id, description:"Groen", unit:"keer", qty: summary.greenQty, unitPrice:38, vatRate:0.21 });
@@ -559,48 +687,104 @@ function seedDemoMonths(st, { months = 3, force = false } = {}){
       pushLine({ bucket:"invoice", productId: greenProduct.id, description:"Groen", unit:"keer", qty: invoiceGreenQty, unitPrice:38, vatRate:0.21 });
       pushLine({ bucket:"cash", productId: greenProduct.id, description:"Groen", unit:"keer", qty: cashGreenQty, unitPrice:38, vatRate:0 });
     }
+    return lines;
+  }
 
-    const statusPick = Math.random();
-    const status = statusPick < 0.30 ? "draft" : "calculated";
+  // Helper: build one settlement object for a group of logs
+  function makeSettlement(customer, logsArr){
+    if (!logsArr.length) return null;
+    const sorted = [...logsArr].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    const lastLog = sorted[sorted.length - 1];
+    const createMs = (lastLog.closedAt || lastLog.createdAt) + ri(1, 3) * 86400000;
+    const ageDays = (nowMs - createMs) / 86400000;
+
+    let status, invoicePaid, cashPaid;
+    if (ageDays > 60){
+      status = "calculated";
+      invoicePaid = Math.random() < 0.95;
+      cashPaid = Math.random() < 0.95;
+    } else if (ageDays > 15){
+      status = "calculated";
+      invoicePaid = Math.random() < 0.60;
+      cashPaid = Math.random() < 0.60;
+    } else {
+      status = Math.random() < 0.5 ? "draft" : "calculated";
+      invoicePaid = false;
+      cashPaid = false;
+    }
+
+    const lines = makeLinesFromLogs(sorted);
+    if (!lines.length) return null;
+
     const temp = {
       id: uid(),
-      customerId: cid,
-      date: take[take.length - 1].date,
-      createdAt: take[take.length - 1].createdAt,
-      logIds: take.map(l => l.id),
+      customerId: customer.id,
+      date: lastLog.date,
+      createdAt: createMs,
+      logIds: sorted.map(l => l.id),
       lines,
       status,
-      invoicePaid: false,
-      cashPaid: false,
+      invoicePaid,
+      cashPaid,
       demo: true
     };
 
     const totals = settlementTotals(temp);
-    if (statusPick >= 0.70){
-      if (totals.invoiceTotal > 0 && totals.cashTotal > 0){
-        temp.invoicePaid = true;
-        temp.cashPaid = true;
-      } else if (totals.invoiceTotal > 0){
-        temp.invoicePaid = true;
-      } else if (totals.cashTotal > 0){
-        temp.cashPaid = true;
-      }
+    if (status === "draft"){
+      temp.invoicePaid = false;
+      temp.cashPaid = false;
     } else {
-      temp.invoicePaid = totals.invoiceTotal > 0 ? Math.random() < 0.5 : false;
-      temp.cashPaid = totals.cashTotal > 0 ? Math.random() < 0.5 : false;
+      if (totals.invoiceTotal <= 0) temp.invoicePaid = false;
+      if (totals.cashTotal <= 0) temp.cashPaid = false;
     }
-
     const paid = isSettlementPaid(temp);
     if (paid) temp.status = "calculated";
-
-    settlements.push(temp);
+    return temp;
   }
 
-  for (const l of logs) delete l._used;
+  // Build settlements per customer based on their rhythm
+  const settlements = [];
+  for (const customer of customers){
+    const customerLogs = (logsByCustomer.get(customer.id) || []).slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    if (!customerLogs.length) continue;
 
-  st.customers = [...customers, ...st.customers];
-  st.logs = [...logs.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)), ...st.logs];
-  st.settlements = [...settlements.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)), ...st.settlements];
+    if (customer.settlementRhythm === "direct"){
+      for (const log of customerLogs){
+        const s = makeSettlement(customer, [log]);
+        if (s) settlements.push(s);
+      }
+    } else if (customer.settlementRhythm === "monthly"){
+      const byMonth = new Map();
+      for (const log of customerLogs){
+        const key = log.date.slice(0, 7); // "YYYY-MM"
+        if (!byMonth.has(key)) byMonth.set(key, []);
+        byMonth.get(key).push(log);
+      }
+      for (const logsArr of byMonth.values()){
+        const s = makeSettlement(customer, logsArr);
+        if (s) settlements.push(s);
+      }
+    } else {
+      const byQuarter = new Map();
+      for (const log of customerLogs){
+        const d = new Date(log.date);
+        const key = `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3)}`;
+        if (!byQuarter.has(key)) byQuarter.set(key, []);
+        byQuarter.get(key).push(log);
+      }
+      for (const logsArr of byQuarter.values()){
+        const s = makeSettlement(customer, logsArr);
+        if (s) settlements.push(s);
+      }
+    }
+  }
+
+  // Strip internal-only properties before persisting
+  const cleanCustomers = customers.map(({ frequent, settlementRhythm, ...rest }) => rest);
+
+  st.customers = [...cleanCustomers, ...st.customers];
+  st.logs = [...logs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)), ...st.logs];
+  st.settlements = [...settlements.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)), ...st.settlements];
   return true;
 }
 
@@ -616,7 +800,7 @@ function clearDemoData(st){
 
 let state = loadState();
 if (!state.ui?.demoDefaultLoaded){
-  const changed = seedDemoMonths(state, { months: 3, force: false });
+  const changed = seedDemoMonths(state, { months: 24, force: false });
   state.ui = state.ui || {};
   state.ui.demoDefaultLoaded = true;
   if (changed) saveState(state);
@@ -1874,8 +2058,8 @@ function _attachSettingsHandlers(){
   };
 
   $("#fillDemoBtn").onclick = ()=>{
-    if (!confirmAction("Demo data toevoegen voor 3 maanden?")) return;
-    const changed = seedDemoMonths(state, { months: 3, force: false });
+    if (!confirmAction("Demo data toevoegen voor 24 maanden (2 jaar)?")) return;
+    const changed = seedDemoMonths(state, { months: 24, force: false });
     if (changed){
 
       commit();
