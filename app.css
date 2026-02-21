@@ -434,10 +434,12 @@ label{ display:block; font-size:12px; color:var(--muted); margin: 0 0 6px 0; }
   height:36px;
 }
 
-.status-log-link-wrap.is-linked .status-icon-chip{
-  color:#ff9a3d;
-  border-color:rgba(255,154,61,.55);
-  background:rgba(255,154,61,.10);
+.status-link,
+.status-link svg,
+.status-link i{
+  color:var(--fg) !important;
+  fill:var(--fg) !important;
+  opacity:1 !important;
 }
 
 .status-picker-select{
@@ -1365,6 +1367,10 @@ body:not([data-view="meer"]) #moreActionBar{
 .pill-calc{ border-color: rgba(255, 140, 0, 0.34); color:var(--text); }
 .pill-paid{ border-color: rgba(0, 160, 90, 0.32); color:var(--text); }
 .pill-neutral{ border-color: var(--border); }
+
+[data-view="logDetail"] .pill{
+  display:none !important;
+}
 
 .card-accent--open{ border-left:3px solid rgba(255,204,0,.72); }
 .card-accent--calculated{ border-left:3px solid rgba(255,140,0,.82); }
