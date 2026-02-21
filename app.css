@@ -117,7 +117,8 @@ body{
 .topbar.nav--calculated{ background: rgba(255,140,0,.18); border-bottom:2px solid rgba(255,140,0,.92); }
 .topbar.nav--paid{ background: rgba(0,160,90,.18); border-bottom:2px solid rgba(0,160,90,.92); }
 
-.main{
+.main,
+.content-area{
   position: absolute;
   inset: 0;
   overflow: hidden;
@@ -341,8 +342,8 @@ label{ display:block; font-size:12px; color:var(--muted); margin: 0 0 6px 0; }
 }
 
 
-#statusTabbarHost.hidden,
-body:not([data-view="settlementDetail"]) #statusTabbarHost{
+.status-tabbar-host.hidden,
+#statusTabbarHost.hidden{
   display:none !important;
   height:0 !important;
   padding:0 !important;
