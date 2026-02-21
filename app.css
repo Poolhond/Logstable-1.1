@@ -1004,6 +1004,59 @@ body:not([data-view="meer"]) #moreActionBar{
   text-align:right;
 }
 
+.linked-afrekening-section{
+  padding-top:0;
+  padding-bottom:0;
+}
+
+.linked-afrekening-row{
+  width:100%;
+  border:0;
+  background:transparent;
+  color:var(--text);
+  padding:8px 0;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  text-align:left;
+}
+
+.linked-afrekening-left{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  min-width:0;
+}
+
+.linked-afrekening-icon{
+  width:18px;
+  height:18px;
+  opacity:.84;
+  flex:0 0 auto;
+}
+
+.linked-afrekening-title{
+  display:block;
+  font-size:14px;
+  font-weight:700;
+  line-height:1.2;
+}
+
+.linked-afrekening-meta{
+  display:block;
+  margin-top:1px;
+  font-size:11px;
+  color:var(--muted);
+  opacity:.75;
+}
+
+.linked-afrekening-chevron{
+  color:var(--muted);
+  font-size:18px;
+  line-height:1;
+}
+
 .segment-editor{
   border-top:1px dashed var(--border);
   padding:6px 0 8px;
