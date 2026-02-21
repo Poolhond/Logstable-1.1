@@ -1456,11 +1456,14 @@ function renderTopbar(){
   const active = currentView();
   const topbar = document.querySelector(".topbar");
   const subtitleEl = $("#topbarSubtitle");
+  const metricEl = $("#topbarMetric");
   const btnNew = $("#btnNewLog");
   let linkedCustomerId = "";
   topbar.classList.remove("nav--free", "nav--linked", "nav--calculated", "nav--paid");
   subtitleEl.classList.add("hidden");
   subtitleEl.textContent = "";
+  metricEl.classList.add("hidden");
+  metricEl.textContent = "";
   btnNew.classList.remove("topbar-edit");
 
   if (active.view === "logDetail"){
@@ -1476,7 +1479,9 @@ function renderTopbar(){
         .reduce((sum, s) => sum + getSegmentMinutes(s), 0);
       topbar.classList.add(`nav--${visual.state}`);
       $("#topbarTitle").textContent = cname(log.customerId);
-      subtitleEl.innerHTML = `<span class="topsubtitle-total mono">${formatMinutesAsDuration(totalWorkMinutes)}</span><span class="topsubtitle-break mono"> • Pauze ${formatMinutesAsDuration(totalBreakMinutes)}</span>`;
+      metricEl.textContent = formatMinutesAsDuration(totalWorkMinutes);
+      metricEl.classList.remove("hidden");
+      subtitleEl.innerHTML = `<span class="topsubtitle-break mono">Pauze ${formatMinutesAsDuration(totalBreakMinutes)}</span>`;
       subtitleEl.classList.remove("hidden");
       linkedCustomerId = log.customerId || "";
     } else {
@@ -2773,8 +2778,8 @@ function renderLogSheet(id){
 
   $("#sheetBody").innerHTML = `
     <div class="stack log-detail-compact">
-      ${renderSegments(log, isEditing)}
       ${renderLinkedAfrekeningRow(linkedAfrekening)}
+      ${renderSegments(log, isEditing)}
 
       <section class="compact-section stack">
         <div class="row space">
