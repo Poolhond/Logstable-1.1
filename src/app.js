@@ -856,28 +856,33 @@ function getTotalWorkDuration(log){
   return compact.endsWith("m") ? compact.slice(0, -1) : compact;
 }
 function countExtraProducts(log){
-  const workProductIds = new Set(
-    (state.products || [])
-      .filter(product => ["werk", "werk (uur)", "arbeid"].includes((product.name || "").trim().toLowerCase()))
-      .map(product => product.id)
-  );
-
   return (log.items || []).reduce((count, item) => {
-    const product = getProduct(item.productId);
-    const productName = (product?.name || "").trim().toLowerCase();
-    const isWork = workProductIds.has(item.productId) || ["werk", "werk (uur)", "arbeid"].includes(productName);
-    return isWork ? count : count + 1;
+    return isOtherProduct(item) ? count + 1 : count;
   }, 0);
+}
+function isWorkProduct(productOrItem){
+  const product = productOrItem?.productId ? getProduct(productOrItem.productId) : productOrItem;
+  if (!product) return false;
+  const name = (product.name || "").trim().toLowerCase();
+  const unit = (product.unit || "").trim().toLowerCase();
+  return ["werk", "werk (uur)", "arbeid"].includes(name) || (name === "werk" && unit === "uur") || unit === "uur";
 }
 function findGreenProduct(){
   const aliases = ["groen", "snoeiafval"];
   return state.products.find(product => aliases.includes((product.name || "").trim().toLowerCase())) || null;
 }
+function isGreenProduct(productOrItem){
+  const product = productOrItem?.productId ? getProduct(productOrItem.productId) : productOrItem;
+  if (!product) return false;
+  const name = (product.name || "").trim().toLowerCase();
+  return ["groen", "snoeiafval"].includes(name);
+}
+function isOtherProduct(productOrItem){
+  return !isWorkProduct(productOrItem) && !isGreenProduct(productOrItem);
+}
 function countGreenItems(log){
-  const greenProduct = findGreenProduct();
-  if (!greenProduct) return 0;
   return round2((log.items || []).reduce((total, item)=>{
-    if (item.productId !== greenProduct.id) return total;
+    if (!isGreenProduct(item)) return total;
     return total + (Number(item.qty) || 0);
   }, 0));
 }
@@ -1225,8 +1230,7 @@ const actions = {
     commit();
   },
   addGreenToLog(logId){
-    const greenProduct = findGreenProduct();
-    if (!greenProduct) return;
+      if (!greenProduct) return;
     const added = addProductToLog(logId, greenProduct.id, 1, greenProduct.unitPrice);
     if (!added) return;
     commit();
@@ -2784,10 +2788,9 @@ function renderLogSheet(id){
       <section class="compact-section stack">
         <div class="row space">
           <div class="item-title">Producten</div>
-          <span class="small mono">Totaal ${fmtMoney(sumItemsAmount(log))}</span>
         </div>
         <div class="log-lines-wrap">
-          ${renderLogItems(log)}
+          ${renderProducts(log, { context: "log" })}
         </div>
       </section>
 
@@ -2940,12 +2943,32 @@ function renderLogSheet(id){
     });
   });
 
-  $("#addProductItem").addEventListener("click", ()=>{
-    const workProduct = state.products.find(p => (p.name||"").trim().toLowerCase() === "werk") || state.products[0] || null;
-    if (!workProduct) return;
+  $("#sheetBody").querySelectorAll("[data-green-qty-step]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const step = Number(btn.getAttribute("data-green-qty-step") || "0");
+      const greenItem = (log.items || []).find(item => isGreenProduct(item));
+      actions.editLog(log.id, (draft)=>{
+        draft.items = draft.items || [];
+        let target = (draft.items || []).find(item => greenItem ? item.id === greenItem.id : isGreenProduct(item));
+        if (!target){
+          const greenProduct = findGreenProduct();
+          if (!greenProduct) return;
+          target = { id: uid(), productId: greenProduct.id, qty: 0, unitPrice: Number(greenProduct.unitPrice || 0), note: "" };
+          draft.items.push(target);
+        }
+        const nextQty = Math.max(0, round2((Number(target.qty) || 0) + step));
+        target.qty = nextQty;
+      });
+      renderSheet();
+    });
+  });
+
+  $("#addProductItem")?.addEventListener("click", ()=>{
+    const nextProduct = (state.products || []).find(product => isOtherProduct(product)) || null;
+    if (!nextProduct) return;
     actions.editLog(log.id, (draft)=>{
       draft.items = draft.items || [];
-      draft.items.push({ id: uid(), productId: workProduct.id, qty: null, unitPrice: Number(workProduct.unitPrice||0), note:"" });
+      draft.items.push({ id: uid(), productId: nextProduct.id, qty: null, unitPrice: Number(nextProduct.unitPrice||0), note:"" });
     });
     renderSheet();
   });
@@ -2964,6 +2987,74 @@ function renderLogSheet(id){
     actions.deleteLog(log.id);
     closeSheet();
   };
+}
+
+function renderProducts(log, { context = "log" } = {}){
+  if (context !== "log") return renderLogItems(log);
+
+  const productOptions = state.products
+    .filter(product => isOtherProduct(product))
+    .map(p => `<option value="${p.id}">${esc(p.name)}${p.unit ? ` (${esc(p.unit)})` : ""}</option>`)
+    .join("");
+
+  const greenItem = (log.items || []).find(item => isGreenProduct(item));
+  const greenQty = round2(Number(greenItem?.qty) || 0);
+
+  const otherItems = (log.items || []).filter(item => isOtherProduct(item));
+
+  const otherRows = otherItems.map(it=>{
+    const productId = isOtherProduct(it) ? it.productId : state.products.find(product => isOtherProduct(product))?.id || "";
+    const qtyValue = it.qty == null ? "" : String(it.qty);
+    const unitPriceValue = it.unitPrice == null ? "" : String(it.unitPrice);
+    return `
+      <div class="log-item-row log-item-row-other">
+        <div class="log-item-row-top">
+          <select class="settlement-cell-input" data-edit-log-item="${it.id}" data-field="productId">
+            ${productOptions.replace(`value="${productId}"`, `value="${productId}" selected`)}
+          </select>
+          <button class="iconbtn settlement-trash" data-del-log-item="${it.id}" title="Verwijder">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M3 6h18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M8 6V4h8v2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M6 6l1 16h10l1-16" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 11v6M14 11v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div class="log-item-row-bottom">
+          <div class="log-item-cell">
+            <label>qty</label>
+            <input class="settlement-cell-input num" data-edit-log-item="${it.id}" data-field="qty" inputmode="decimal" value="${esc(qtyValue)}" />
+          </div>
+          <div class="log-item-cell">
+            <label>€/eenheid</label>
+            <input class="settlement-cell-input num" data-edit-log-item="${it.id}" data-field="unitPrice" inputmode="decimal" value="${esc(unitPriceValue)}" />
+          </div>
+          <div class="log-item-total num mono">${fmtMoney((Number(it.qty)||0)*(Number(it.unitPrice)||0))}</div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  const otherSection = otherItems.length
+    ? `
+      <div class="log-other-items-wrap">
+        ${otherRows}
+      </div>
+    `
+    : "";
+
+  return `
+    <div class="log-items-list log-items-list-minimal">
+      <div class="log-green-row">
+        <span class="log-green-icon" aria-hidden="true">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M5 15c2.2-6.2 8.4-8.7 14-9-1.1 5.7-3 11.8-9 14-4 1.4-7-1.3-5-5Z" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 14.5c2 .2 4.6-.4 7.5-2.4" stroke-linecap="round"/></svg>
+        </span>
+        <div class="log-green-qty mono tabular">${esc(String(greenQty))}</div>
+        <div class="log-green-controls">
+          <button class="iconbtn iconbtn-sm" type="button" data-green-qty-step="-1" aria-label="Groen min">−</button>
+          <button class="iconbtn iconbtn-sm" type="button" data-green-qty-step="1" aria-label="Groen plus">+</button>
+        </div>
+      </div>
+      ${otherSection}
+      ${productOptions ? `<button class="btn" id="addProductItem" type="button">+ Product</button>` : ""}
+    </div>
+  `;
 }
 
 function renderLogItems(log){
