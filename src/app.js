@@ -1627,13 +1627,13 @@ function clearStatusTabbar(){
   setBottomBarHeights({ statusVisible: false });
 }
 
-function renderStatusTabbar(content){
+function setStatusTabbar(htmlString){
   const host = document.getElementById("statusTabbarHost");
   if (!host) return;
   host.classList.remove("hidden");
   host.innerHTML = `
     <div class="status-tabbar" role="group" aria-label="Afrekening status acties">
-      <div class="status-tabbar-inner">${content}</div>
+      <div class="status-tabbar-inner">${htmlString}</div>
     </div>
   `;
   setBottomBarHeights({ statusVisible: true });
@@ -1707,14 +1707,14 @@ function syncViewUiState(){
 
   const host = document.getElementById("statusTabbarHost");
   if (!host) return;
-  if (active.view !== "settlementDetail"){
+  const hasStatus = Boolean(host.querySelector(".status-tabbar"));
+  if (!hasStatus){
     clearStatusTabbar();
     return;
   }
 
   host.classList.remove("hidden");
-  const hasStatus = Boolean(host.querySelector(".status-tabbar"));
-  setBottomBarHeights({ statusVisible: hasStatus });
+  setBottomBarHeights({ statusVisible: true });
 }
 
 // ---------- Render ----------
@@ -3197,7 +3197,7 @@ function renderSettlementSheet(id){
     </div>
   `;
 
-  renderStatusTabbar(`
+  setStatusTabbar(`
     <div class="settlement-status-bar">
       ${renderSettlementStatusIcons(s)}
     </div>
