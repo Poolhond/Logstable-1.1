@@ -164,6 +164,7 @@ body{
   max-width:100%;
 }
 .stack{ display:flex; flex-direction:column; gap:12px; }
+.stack-tight{ display:flex; flex-direction:column; gap:8px; }
 
 .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
 .row.space{ justify-content:space-between; }
@@ -1349,6 +1350,10 @@ h2{
   gap:14px;
   padding:20px 0 16px;
 }
+.timer-idle--compact{
+  gap:10px;
+  padding:12px 0 10px;
+}
 .timer-idle-cta{
   display:flex;
   flex-direction:column;
@@ -1383,6 +1388,10 @@ h2{
   color:var(--muted);
   text-align:center;
 }
+.timer-idle--compact .timer-idle-sub{
+  margin-top:-2px;
+  font-size:11px;
+}
 .start-block{
   border-bottom:1px solid var(--border);
   padding-bottom:18px;
@@ -1411,6 +1420,15 @@ h2{
   -webkit-tap-highlight-color:transparent;
 }
 .cloud-chip:active{ opacity:0.65; }
+
+.recent-customers--compact{
+  gap:6px;
+}
+
+.recent-customers--compact .cloud-chip{
+  padding:6px 12px;
+  font-size:13px;
+}
 
 .timer-active{
   display:flex;
@@ -1513,7 +1531,7 @@ h2{
   display:flex;
   align-items:center;
   justify-content:space-between;
-  padding:16px 4px 8px;
+  padding:10px 4px 6px;
 }
 .logs-section-title{
   font-size:13px;
