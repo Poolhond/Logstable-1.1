@@ -363,6 +363,7 @@ function loadState(){
   for (const c of st.customers){
     if (!("demo" in c)) c.demo = false;
   }
+  ensureUniqueCustomerNicknames(st);
   for (const p of st.products){
     if (!("demo" in p)) p.demo = false;
   }
@@ -406,8 +407,36 @@ const DEMO = {
   lastNames: ["Peeters", "Janssens", "Van den Broeck", "Wouters", "Claes", "Lambrechts", "Maes", "Vermeulen", "Hermans", "Goossens", "De Smet", "Schreurs", "Leclercq", "Van Acker", "Bogaert", "Pieters", "Nijs", "Declercq"],
   streets: ["Naamsesteenweg", "Tiensevest", "Diestsesteenweg", "Tervuursesteenweg", "Geldenaaksebaan", "Kapucijnenvoer", "Ridderstraat", "Brusselsestraat", "Parkstraat", "Molenstraat", "Blandenstraat"],
   zones: ["Heverlee", "Kessel-Lo", "Wilsele", "Herent", "Leuven", "Wijgmaal", "Haasrode", "Bertem"],
-  nicknames: ["Jules", "Noor", "Milo", "Tess", "Lina", "Bram", "Nina", "Otis", "Fien", "Wout"]
+  nicknames: ["Jules", "Noor", "Milo", "Tess", "Lina", "Bram", "Nina", "Otis", "Fien", "Wout", "Lotte", "Ibe", "Mats", "Rosa", "Yara", "Lio", "Cis", "Mona", "Sem", "Bo"]
 };
+
+function normalizeNickname(value){
+  return String(value || "").trim().toLowerCase();
+}
+
+function findCustomerByNickname(st, nickname, excludeId = null){
+  const key = normalizeNickname(nickname);
+  if (!key) return null;
+  return (st.customers || []).find(c => c.id !== excludeId && normalizeNickname(c.nickname) === key) || null;
+}
+
+function ensureUniqueCustomerNicknames(st){
+  const used = new Set();
+  for (const customer of (st.customers || [])){
+    const original = String(customer.nickname || "").trim();
+    if (!original) continue;
+
+    const base = original;
+    let candidate = base;
+    let n = 2;
+    while (used.has(normalizeNickname(candidate))){
+      candidate = `${base} ${n}`;
+      n += 1;
+    }
+    customer.nickname = candidate;
+    used.add(normalizeNickname(candidate));
+  }
+}
 
 function ri(min, max){ return Math.floor(Math.random() * (max - min + 1)) + min; }
 function rf(min, max){ return Math.random() * (max - min) + min; }
@@ -466,6 +495,7 @@ function seedDemoMonths(st, { months = 3, force = false } = {}){
   // settlementRhythm: 3 direct, 7 monthly, 5 quarterly (shuffled across customers)
   const rhythmList = ["direct","direct","direct","monthly","monthly","monthly","monthly","monthly","monthly","monthly","quarterly","quarterly","quarterly","quarterly","quarterly"];
   const usedNames = new Set();
+  const availableNicknames = DEMO.nicknames.slice().sort(() => Math.random() - 0.5);
   const customers = [];
   for (let i = 0; i < 15; i++){
     let fn, ln, nameKey;
@@ -478,7 +508,7 @@ function seedDemoMonths(st, { months = 3, force = false } = {}){
     const street = pick(DEMO.streets);
     const zone = pick(DEMO.zones);
     const nr = ri(1, 180);
-    const nick = pick(DEMO.nicknames);
+    const nick = availableNicknames[i] || `${fn} ${ln}`;
     const frequent = i < 10;
     const settlementRhythm = rhythmList[i];
     customers.push({
@@ -1374,10 +1404,15 @@ const actions = {
   setLogbook(partial){ state.logbook = { ...(state.logbook || {}), ...partial }; commit(); },
   addCustomer(customer){ state.customers.unshift(customer); commit(); return customer; },
   updateCustomer(customerId, patch){
+    if ("nickname" in patch){
+      const duplicate = findCustomerByNickname(state, patch.nickname, customerId);
+      if (duplicate) return { ok: false, error: "duplicate_nickname" };
+    }
     const c = state.customers.find(x => x.id === customerId);
-    if (!c) return;
+    if (!c) return { ok: false, error: "not_found" };
     Object.assign(c, patch);
     commit();
+    return { ok: true };
   },
   deleteCustomer(customerId){ state.customers = state.customers.filter(x => x.id !== customerId); commit(); },
   updateProduct(productId, patch){
@@ -2590,11 +2625,15 @@ function renderCustomerSheet(id){
   `;
 
   $("#saveCustomer").onclick = ()=>{
-    actions.updateCustomer(c.id, {
+    const result = actions.updateCustomer(c.id, {
       nickname: ($("#cNick").value||"").trim(),
       name: ($("#cName").value||"").trim(),
       address: ($("#cAddr").value||"").trim()
     });
+    if (result?.error === "duplicate_nickname"){
+      alert("Bijnaam bestaat al. Kies een unieke bijnaam.");
+      return;
+    }
     alert("Opgeslagen.");
   };
 
