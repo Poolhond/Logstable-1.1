@@ -74,6 +74,13 @@ function formatDurationCompact(totalMinutes){
   return `${h}u${String(m).padStart(2, "0")}m`;
 }
 function round2(n){ return Math.round((Number(n||0))*100)/100; }
+function roundToHalfHour(hours) {
+  return Math.round(Number(hours || 0) * 2) / 2;
+}
+function fmtQty(qty) {
+  const n = Number(qty || 0);
+  return String(parseFloat(n.toFixed(2)));
+}
 function formatDatePretty(isoDate){
   if (!isoDate) return "";
   const [y, m, d] = String(isoDate).split("-").map(Number);
@@ -950,6 +957,66 @@ function countGreenItems(log){
 function getCustomer(id){ return state.customers.find(c => c.id === id) || null; }
 function cname(id){ const c=getCustomer(id); return c ? (c.nickname || c.name || "Klant") : "Klant"; }
 function getProduct(id){ return state.products.find(p => p.id === id) || null; }
+function findCoreLine(settlement, bucket, productName) {
+  const product = state.products.find(p => (p.name || '').trim().toLowerCase() === productName.toLowerCase());
+  return (settlement.lines || []).find(l =>
+    (l.bucket || 'invoice') === bucket &&
+    (product ? l.productId === product.id :
+      (l.name || l.description || '').toLowerCase() === productName.toLowerCase())
+  ) || null;
+}
+
+function ensureCoreLine(settlement, bucket, productName) {
+  settlement.lines = settlement.lines || [];
+  let line = findCoreLine(settlement, bucket, productName);
+  if (!line) {
+    const product = state.products.find(p => (p.name || '').trim().toLowerCase() === productName.toLowerCase());
+    line = {
+      id: uid(),
+      bucket,
+      productId: product?.id || null,
+      name: product?.name || productName,
+      description: product?.name || productName,
+      qty: 0,
+      unitPrice: product ? Number(product.unitPrice || 0) : 0,
+      vatRate: bucket === 'invoice' ? Number(product?.vatRate ?? 0.21) : 0
+    };
+    settlement.lines.push(line);
+  }
+  return line;
+}
+
+function autoFillFromLogs(settlement) {
+  const linkedLogs = (settlement.logIds || [])
+    .map(id => state.logs.find(l => l.id === id))
+    .filter(Boolean);
+
+  const totalWorkMs = linkedLogs.reduce((acc, log) => acc + sumWorkMs(log), 0);
+  const rawHours = totalWorkMs / 3600000;
+  const roundedHours = roundToHalfHour(rawHours);
+  const totalGreen = round2(linkedLogs.reduce((acc, log) => acc + countGreenItems(log), 0));
+
+  const werkProduct = state.products.find(p => (p.name || '').toLowerCase() === 'werk');
+  const groenProduct = state.products.find(p => (p.name || '').toLowerCase() === 'groen');
+
+  const invWerk = ensureCoreLine(settlement, 'invoice', 'Werk');
+  invWerk.qty = roundedHours;
+  invWerk.unitPrice = Number(werkProduct?.unitPrice || state.settings.hourlyRate || 38);
+  invWerk.vatRate = Number(werkProduct?.vatRate ?? 0.21);
+
+  const invGroen = ensureCoreLine(settlement, 'invoice', 'Groen');
+  invGroen.qty = totalGreen;
+  invGroen.unitPrice = Number(groenProduct?.unitPrice || 38);
+  invGroen.vatRate = Number(groenProduct?.vatRate ?? 0.21);
+
+  const cashWerk = findCoreLine(settlement, 'cash', 'Werk');
+  if (cashWerk) cashWerk.qty = 0;
+
+  const cashGroen = findCoreLine(settlement, 'cash', 'Groen');
+  if (cashGroen) cashGroen.qty = 0;
+
+  syncSettlementAmounts(settlement);
+}
 function pname(id){ const p=getProduct(id); return p ? p.name : "Product"; }
 
 function currentOpenSegment(log){
@@ -3338,12 +3405,8 @@ function renderSettlementStatusIcons(settlement){
   return chips.join("");
 }
 
-function calculateSettlement(settlement){
+function calculateSettlement(settlement) {
   if (!settlement) return;
-  const computed = computeSettlementFromLogs(settlement.customerId, settlement.logIds || []);
-  const previousBucket = new Map((settlement.lines || []).map(li => [li.productId + "|" + li.description, li.bucket]));
-  settlement.lines = computed.lines.map(li => ({ ...li, bucket: previousBucket.get(li.productId + "|" + li.description) || li.bucket }));
-  ensureDefaultSettlementLines(settlement);
   settlement.markedCalculated = true;
   settlement.isCalculated = true;
   settlement.calculatedAt = now();
@@ -3405,6 +3468,48 @@ function renderSettlementLogOverviewSheet(settlementId){
           <span>Totaal</span><strong>${formatMoneyEUR(totalAmount)}</strong>
         </div>
       </div>
+    </div>
+  `;
+}
+
+function renderExtraLineRow(line, isEdit) {
+  const productName = esc((getProduct(line.productId)?.name) || line.name || line.description || '—');
+  const qty = Number(line.qty || 0);
+  const unitPrice = Number(line.unitPrice || 0);
+  const total = round2(qty * unitPrice);
+  const productOptions = state.products
+    .filter(p => !isWorkProductId(p.id) && !isGreenProduct(p))
+    .map(p => `<option value="${p.id}" ${p.id === line.productId ? 'selected' : ''}>${esc(p.name)}</option>`)
+    .join('');
+
+  if (!isEdit) {
+    return `
+      <div class="sett-extra-row">
+        <div>
+          <div class="sett-extra-label">${productName}</div>
+          <div class="sett-extra-meta mono">${fmtQty(qty)} × ${fmtMoney(unitPrice)}</div>
+        </div>
+        <div class="sett-extra-total mono">${fmtMoney(total)}</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="sett-extra-edit">
+      <select class="settlement-cell-input" data-line-product="${line.id}">
+        <option value="">Kies product</option>${productOptions}
+      </select>
+      <input class="settlement-cell-input mono" data-line-qty="${line.id}" inputmode="decimal"
+        value="${esc(qty === 0 ? '' : String(qty))}" placeholder="qty" />
+      <input class="settlement-cell-input mono" data-line-price="${line.id}" inputmode="decimal"
+        value="${esc(unitPrice === 0 ? '' : String(unitPrice))}" placeholder="€" />
+      <button class="sett-trash" data-line-del="${line.id}" title="Verwijder" aria-label="Verwijder regel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <path d="M3 6h18" stroke-linecap="round"/>
+          <path d="M8 6V4h8v2"/>
+          <path d="M6 6l1 16h10l1-16"/>
+        </svg>
+      </button>
     </div>
   `;
 }
@@ -3742,33 +3847,28 @@ function addSettlementLine(settlement, bucket){
   });
 }
 
-function ensureDefaultSettlementLines(settlement){
+function ensureDefaultSettlementLines(settlement) {
   settlement.lines = settlement.lines || [];
-  const ensureForBucket = bucket=>{
-    ["Werk", "Groen"].forEach(productName=>{
-      const product = (state.products||[]).find(p => (p.name||'').toLowerCase() === productName.toLowerCase()) || null;
-      const hasLine = settlement.lines.some(line => {
-        const sameBucket = (line.bucket||'invoice') === bucket;
-        if (!sameBucket) return false;
-        if (product && line.productId) return line.productId === product.id;
-        const label = String(line.name || line.description || pname(line.productId) || '').toLowerCase();
-        return label === productName.toLowerCase();
-      });
-      if (hasLine) return;
-      settlement.lines.push({
-        id: uid(),
-        productId: product?.id || null,
-        name: product?.name || productName,
-        description: product?.name || productName,
-        qty: '',
-        unitPrice: product ? Number(product.unitPrice || 0) : '',
-        vatRate: bucket === 'invoice' ? Number(product?.vatRate ?? 0.21) : 0,
-        bucket
-      });
+  ['Werk', 'Groen'].forEach(productName => {
+    const product = (state.products || []).find(p => (p.name || '').trim().toLowerCase() === productName.toLowerCase()) || null;
+    const hasLine = settlement.lines.some(line => {
+      if ((line.bucket || 'invoice') !== 'invoice') return false;
+      if (product && line.productId) return line.productId === product.id;
+      const label = String(line.name || line.description || pname(line.productId) || '').toLowerCase();
+      return label === productName.toLowerCase();
     });
-  };
-  ensureForBucket('invoice');
-  ensureForBucket('cash');
+    if (hasLine) return;
+    settlement.lines.push({
+      id: uid(),
+      bucket: 'invoice',
+      productId: product?.id || null,
+      name: product?.name || productName,
+      description: product?.name || productName,
+      qty: '',
+      unitPrice: product ? Number(product.unitPrice || 0) : '',
+      vatRate: Number(product?.vatRate ?? 0.21)
+    });
+  });
 }
 
 
