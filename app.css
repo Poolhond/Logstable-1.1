@@ -1835,3 +1835,317 @@ h2{
   width:16px;
   height:16px;
 }
+
+/* ====== Settlement redesign — stepper-based layout ====== */
+
+.sett-detail {
+  gap: 0;
+}
+
+.sett-section {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sett-section:last-child {
+  border-bottom: 0;
+}
+
+.sett-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.sett-section-head h2 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.sett-section-amount {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.sett-section-amount.is-zero {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.sett-product-row {
+  display: grid;
+  grid-template-columns: 1fr auto 72px;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 0;
+}
+
+.sett-product-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sett-product-name {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.sett-product-rate {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.sett-product-total {
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sett-product-total.is-zero {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.sett-qty-control {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px 4px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sett-qty-btn {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 300;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  line-height: 1;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+.sett-qty-btn:active {
+  background: rgba(233,238,246,.12);
+}
+
+.sett-qty-val {
+  min-width: 36px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.sett-totals {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.sett-totals-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  gap: 8px;
+}
+
+.sett-totals-row .sett-totals-label {
+  color: var(--muted);
+}
+
+.sett-totals-row .sett-totals-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.sett-totals-row.is-total strong {
+  font-size: 14px;
+}
+
+.sett-log-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  width: 100%;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sett-log-row:last-of-type {
+  border-bottom: 0;
+}
+
+label.sett-log-row {
+  cursor: pointer;
+}
+
+.sett-log-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sett-log-date {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sett-log-dur {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.sett-ref-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 6px 0 2px;
+  border-top: 1px dashed var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.sett-ref-bar .sett-ref-arrow {
+  opacity: .5;
+}
+
+.sett-ref-bar .sett-ref-rounded {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.sett-extra-row {
+  display: grid;
+  grid-template-columns: 1fr 72px;
+  gap: 8px;
+  align-items: baseline;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.sett-extra-row:last-of-type {
+  border-bottom: 0;
+}
+
+.sett-extra-label {
+  font-size: 13px;
+}
+
+.sett-extra-meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+
+.sett-extra-total {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.sett-extra-edit {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) 70px 70px 36px;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.sett-extra-edit:last-of-type {
+  border-bottom: 0;
+}
+
+.sett-extra-edit input,
+.sett-extra-edit select {
+  min-height: 34px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.sett-extra-edit .sett-trash {
+  min-height: 34px;
+  width: 36px;
+  padding: 6px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sett-section.cash-empty .sett-product-name,
+.sett-section.cash-empty .sett-product-rate {
+  opacity: .55;
+}
+
+.btn-bereken {
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn-bereken .icon {
+  width: 14px;
+  height: 14px;
+}
