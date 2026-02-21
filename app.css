@@ -88,6 +88,16 @@ body{
   display:flex;
   align-items:center;
 }
+.topbar-right{
+  gap:10px;
+}
+.topbar-right-info{
+  text-align:right;
+  font-size:16px;
+  line-height:1.1;
+  opacity:.72;
+  white-space:nowrap;
+}
 .topbar-left{ gap:10px; min-width:0; flex:1; }
 .titlewrap{ display:flex; flex-direction:column; gap:2px; min-width:0; flex:1; }
 .topbar-headline{
@@ -1135,6 +1145,32 @@ body:not([data-view="meer"]) #moreActionBar{
 .log-green-controls .iconbtn-sm{
   min-width:34px;
   min-height:34px;
+}
+
+.log-other-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+
+.log-other-list-compact{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.log-other-row-compact{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:8px;
+  align-items:baseline;
+  font-size:13px;
+}
+
+.log-other-meta{
+  color:var(--muted);
+  font-size:12px;
 }
 
 .log-other-items-wrap{

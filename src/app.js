@@ -863,9 +863,13 @@ function countExtraProducts(log){
 function isWorkProduct(productOrItem){
   const product = productOrItem?.productId ? getProduct(productOrItem.productId) : productOrItem;
   if (!product) return false;
+  return isWorkProductId(product.id) || (product.unit || "").trim().toLowerCase() === "uur";
+}
+function isWorkProductId(productId){
+  const product = getProduct(productId);
+  if (!product) return false;
   const name = (product.name || "").trim().toLowerCase();
-  const unit = (product.unit || "").trim().toLowerCase();
-  return ["werk", "werk (uur)", "arbeid"].includes(name) || (name === "werk" && unit === "uur") || unit === "uur";
+  return ["werk", "werk (uur)", "arbeid"].includes(name);
 }
 function findGreenProduct(){
   const aliases = ["groen", "snoeiafval"];
@@ -879,6 +883,33 @@ function isGreenProduct(productOrItem){
 }
 function isOtherProduct(productOrItem){
   return !isWorkProduct(productOrItem) && !isGreenProduct(productOrItem);
+}
+function splitLogItems(log){
+  const greenProduct = findGreenProduct();
+  const items = log?.items || [];
+  const greenItem = items.find(item => greenProduct && item.productId === greenProduct.id) || items.find(item => isGreenProduct(item));
+  const greenItemQty = round2(Number(greenItem?.qty) || 0);
+  const otherItems = items.filter(item => !isGreenProduct(item) && !isWorkProductId(item.productId));
+  return { greenItemQty, otherItems };
+}
+function adjustLogGreenQty(logId, delta){
+  actions.editLog(logId, (draft)=>{
+    draft.items = draft.items || [];
+    const greenProduct = findGreenProduct();
+    if (!greenProduct) return;
+    let target = draft.items.find(item => item.productId === greenProduct.id) || draft.items.find(item => isGreenProduct(item));
+    if (!target){
+      target = { id: uid(), productId: greenProduct.id, qty: 0, unitPrice: 0, note: "" };
+      draft.items.push(target);
+    }
+    const nextQty = Math.max(0, round2((Number(target.qty) || 0) + delta));
+    if (nextQty <= 0){
+      draft.items = draft.items.filter(item => item.id !== target.id);
+      return;
+    }
+    target.qty = nextQty;
+    target.unitPrice = 0;
+  });
 }
 function countGreenItems(log){
   return round2((log.items || []).reduce((total, item)=>{
@@ -1462,31 +1493,28 @@ function renderTopbar(){
   const subtitleEl = $("#topbarSubtitle");
   const metricEl = $("#topbarMetric");
   const btnNew = $("#btnNewLog");
+  const rightInfoEl = $("#topbarRightInfo");
   let linkedCustomerId = "";
   topbar.classList.remove("nav--free", "nav--linked", "nav--calculated", "nav--paid");
   subtitleEl.classList.add("hidden");
   subtitleEl.textContent = "";
   metricEl.classList.add("hidden");
   metricEl.textContent = "";
+  rightInfoEl?.classList.add("hidden");
+  if (rightInfoEl) rightInfoEl.textContent = "";
   btnNew.classList.remove("topbar-edit");
 
   if (active.view === "logDetail"){
     const log = state.logs.find(x => x.id === active.id);
     if (log){
       const visual = getLogVisualState(log);
-      const segments = log.segments || [];
-      const totalWorkMinutes = segments
-        .filter(s => s.type === "work")
-        .reduce((sum, s) => sum + getSegmentMinutes(s), 0);
-      const totalBreakMinutes = segments
-        .filter(s => s.type === "break")
-        .reduce((sum, s) => sum + getSegmentMinutes(s), 0);
       topbar.classList.add(`nav--${visual.state}`);
       $("#topbarTitle").textContent = cname(log.customerId);
-      metricEl.textContent = formatMinutesAsDuration(totalWorkMinutes);
-      metricEl.classList.remove("hidden");
-      subtitleEl.innerHTML = `<span class="topsubtitle-break mono">Pauze ${formatMinutesAsDuration(totalBreakMinutes)}</span>`;
-      subtitleEl.classList.remove("hidden");
+      const totalMinutes = Math.floor(sumWorkMs(log) / 60000);
+      if (rightInfoEl){
+        rightInfoEl.textContent = formatDurationCompact(totalMinutes);
+        rightInfoEl.classList.remove("hidden");
+      }
       linkedCustomerId = log.customerId || "";
     } else {
       $("#topbarTitle").textContent = viewTitle(active);
@@ -2790,7 +2818,7 @@ function renderLogSheet(id){
           <div class="item-title">Producten</div>
         </div>
         <div class="log-lines-wrap">
-          ${renderProducts(log, { context: "log" })}
+          ${renderProducts(log, { context: "log", isEditing })}
         </div>
       </section>
 
@@ -2801,7 +2829,7 @@ function renderLogSheet(id){
 
       <section class="compact-section log-detail-footer-actions">
         <span class="pill ${statusPillClass}">${statusLabel}</span>
-        <button class="btn danger" id="delLog">Verwijder</button>
+        ${isEditing ? `<button class="btn danger" id="delLog">Verwijder</button>` : ""}
       </section>
     </div>
   `;
@@ -2911,66 +2939,85 @@ function renderLogSheet(id){
     });
   });
 
-  $("#sheetBody").querySelectorAll("[data-del-log-item]").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const itemId = btn.getAttribute("data-del-log-item");
-      if (!confirmDelete("Item verwijderen")) return;
-      actions.editLog(log.id, (draft)=>{
-        draft.items = (draft.items||[]).filter(it => it.id !== itemId);
+  if (isEditing){
+    $("#sheetBody").querySelectorAll("[data-del-log-item]").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        const itemId = btn.getAttribute("data-del-log-item");
+        if (!confirmDelete("Item verwijderen")) return;
+        actions.editLog(log.id, (draft)=>{
+          draft.items = (draft.items||[]).filter(it => it.id !== itemId);
+        });
+        renderSheet();
       });
-      renderSheet();
     });
-  });
 
-  $("#sheetBody").querySelectorAll("[data-edit-log-item]").forEach(inp=>{
-    inp.addEventListener("change", ()=>{
-      const itemId = inp.getAttribute("data-edit-log-item");
-      const field = inp.getAttribute("data-field");
-      const it = (log.items||[]).find(x => x.id === itemId);
-      if (!it) return;
-      actions.editLog(log.id, (draft)=>{
-        const target = (draft.items||[]).find(x => x.id === itemId);
-        if (!target) return;
-        if (field === "qty") target.qty = inp.value === "" ? null : Number(String(inp.value).replace(",", ".") || "0");
-        if (field === "unitPrice") target.unitPrice = inp.value === "" ? null : Number(String(inp.value).replace(",", ".") || "0");
-        if (field === "productId"){
-          target.productId = inp.value;
-          const p = getProduct(inp.value);
-          if (p && (target.unitPrice == null || target.unitPrice === 0)) target.unitPrice = Number(p.unitPrice||0);
-        }
+    $("#sheetBody").querySelectorAll("[data-edit-log-item]").forEach(inp=>{
+      inp.addEventListener("change", ()=>{
+        const itemId = inp.getAttribute("data-edit-log-item");
+        const field = inp.getAttribute("data-field");
+        const it = (log.items||[]).find(x => x.id === itemId);
+        if (!it) return;
+        actions.editLog(log.id, (draft)=>{
+          const target = (draft.items||[]).find(x => x.id === itemId);
+          if (!target) return;
+          if (field === "qty") target.qty = inp.value === "" ? null : Number(String(inp.value).replace(",", ".") || "0");
+          if (field === "unitPrice") target.unitPrice = inp.value === "" ? null : Number(String(inp.value).replace(",", ".") || "0");
+          if (field === "productId"){
+            target.productId = inp.value;
+            const p = getProduct(inp.value);
+            if (p && (target.unitPrice == null || target.unitPrice === 0)) target.unitPrice = Number(p.unitPrice||0);
+          }
+        });
+        renderSheet();
       });
-      renderSheet();
     });
-  });
 
-  $("#sheetBody").querySelectorAll("[data-green-qty-step]").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const step = Number(btn.getAttribute("data-green-qty-step") || "0");
-      const greenItem = (log.items || []).find(item => isGreenProduct(item));
+    $("#addProductItem")?.addEventListener("click", ()=>{
+      const nextProduct = (state.products || []).find(product => isOtherProduct(product)) || null;
+      if (!nextProduct) return;
       actions.editLog(log.id, (draft)=>{
         draft.items = draft.items || [];
-        let target = (draft.items || []).find(item => greenItem ? item.id === greenItem.id : isGreenProduct(item));
-        if (!target){
-          const greenProduct = findGreenProduct();
-          if (!greenProduct) return;
-          target = { id: uid(), productId: greenProduct.id, qty: 0, unitPrice: Number(greenProduct.unitPrice || 0), note: "" };
-          draft.items.push(target);
-        }
-        const nextQty = Math.max(0, round2((Number(target.qty) || 0) + step));
-        target.qty = nextQty;
+        draft.items.push({ id: uid(), productId: nextProduct.id, qty: null, unitPrice: Number(nextProduct.unitPrice||0), note:"" });
       });
       renderSheet();
     });
-  });
+  }
 
-  $("#addProductItem")?.addEventListener("click", ()=>{
-    const nextProduct = (state.products || []).find(product => isOtherProduct(product)) || null;
-    if (!nextProduct) return;
-    actions.editLog(log.id, (draft)=>{
-      draft.items = draft.items || [];
-      draft.items.push({ id: uid(), productId: nextProduct.id, qty: null, unitPrice: Number(nextProduct.unitPrice||0), note:"" });
+  $("#sheetBody").querySelectorAll("[data-green-qty-step]").forEach(btn=>{
+    let longPressTriggered = false;
+    let pressTimer = null;
+    const baseStep = Number(btn.getAttribute("data-green-qty-step") || "0");
+
+    const clearPress = ()=>{
+      if (pressTimer){
+        clearTimeout(pressTimer);
+        pressTimer = null;
+      }
+    };
+
+    btn.addEventListener("pointerdown", ()=>{
+      longPressTriggered = false;
+      clearPress();
+      pressTimer = setTimeout(()=>{
+        longPressTriggered = true;
+        adjustLogGreenQty(log.id, baseStep > 0 ? 0.5 : -0.5);
+        renderSheet();
+      }, 450);
     });
-    renderSheet();
+
+    const cancelPress = ()=> clearPress();
+    btn.addEventListener("pointerup", cancelPress);
+    btn.addEventListener("pointercancel", cancelPress);
+    btn.addEventListener("pointerleave", cancelPress);
+
+    btn.addEventListener("click", ()=>{
+      if (longPressTriggered){
+        longPressTriggered = false;
+        return;
+      }
+      adjustLogGreenQty(log.id, baseStep);
+      renderSheet();
+    });
   });
 
   $("#logSettlementPicker").onchange = ()=>{
@@ -2980,29 +3027,27 @@ function renderLogSheet(id){
     renderSheet();
   };
 
-  $("#delLog").onclick = ()=>{
+  $("#delLog")?.addEventListener("click", ()=>{
     if (state.activeLogId === log.id){ alert("Stop eerst je actieve log."); return; }
     if (af){ alert("Ontkoppel eerst van afrekening (of verwijder afrekening)."); return; }
     if (!confirmDelete(`Werklog ${log.date} — ${cname(log.customerId)}`)) return;
     actions.deleteLog(log.id);
     closeSheet();
-  };
+  });
 }
 
-function renderProducts(log, { context = "log" } = {}){
+function renderProducts(log, { context = "log", isEditing = false } = {}){
   if (context !== "log") return renderLogItems(log);
 
+  const { greenItemQty, otherItems } = splitLogItems(log);
   const productOptions = state.products
     .filter(product => isOtherProduct(product))
     .map(p => `<option value="${p.id}">${esc(p.name)}${p.unit ? ` (${esc(p.unit)})` : ""}</option>`)
     .join("");
 
-  const greenItem = (log.items || []).find(item => isGreenProduct(item));
-  const greenQty = round2(Number(greenItem?.qty) || 0);
+  const otherSubtotal = round2(otherItems.reduce((acc, item) => acc + (Number(item.qty) || 0) * (Number(item.unitPrice) || 0), 0));
 
-  const otherItems = (log.items || []).filter(item => isOtherProduct(item));
-
-  const otherRows = otherItems.map(it=>{
+  const otherRowsEdit = otherItems.map(it=>{
     const productId = isOtherProduct(it) ? it.productId : state.products.find(product => isOtherProduct(product))?.id || "";
     const qtyValue = it.qty == null ? "" : String(it.qty);
     const unitPriceValue = it.unitPrice == null ? "" : String(it.unitPrice);
@@ -3031,13 +3076,18 @@ function renderProducts(log, { context = "log" } = {}){
     `;
   }).join("");
 
-  const otherSection = otherItems.length
-    ? `
-      <div class="log-other-items-wrap">
-        ${otherRows}
+  const otherRowsCompact = otherItems.map(it=>{
+    const qty = Number(it.qty) || 0;
+    const total = round2(qty * (Number(it.unitPrice) || 0));
+    return `
+      <div class="log-other-row-compact">
+        <span>${esc(pname(it.productId))}</span>
+        <span class="mono tabular">${esc(String(round2(qty)))}${total > 0 ? ` <span class="log-other-meta">· ${fmtMoney(total)}</span>` : ""}</span>
       </div>
-    `
-    : "";
+    `;
+  }).join("");
+
+  const showOtherSection = isEditing || otherItems.length > 0;
 
   return `
     <div class="log-items-list log-items-list-minimal">
@@ -3045,14 +3095,24 @@ function renderProducts(log, { context = "log" } = {}){
         <span class="log-green-icon" aria-hidden="true">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M5 15c2.2-6.2 8.4-8.7 14-9-1.1 5.7-3 11.8-9 14-4 1.4-7-1.3-5-5Z" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 14.5c2 .2 4.6-.4 7.5-2.4" stroke-linecap="round"/></svg>
         </span>
-        <div class="log-green-qty mono tabular">${esc(String(greenQty))}</div>
+        <div class="log-green-qty mono tabular">${esc(String(greenItemQty))}</div>
         <div class="log-green-controls">
           <button class="iconbtn iconbtn-sm" type="button" data-green-qty-step="-1" aria-label="Groen min">−</button>
           <button class="iconbtn iconbtn-sm" type="button" data-green-qty-step="1" aria-label="Groen plus">+</button>
         </div>
       </div>
-      ${otherSection}
-      ${productOptions ? `<button class="btn" id="addProductItem" type="button">+ Product</button>` : ""}
+      ${showOtherSection ? `
+        <div class="log-other-items-wrap">
+          <div class="log-other-head">
+            <div class="item-sub">Andere producten</div>
+            ${isEditing && productOptions ? `<button class="btn" id="addProductItem" type="button">+ Extra kost</button>` : ""}
+          </div>
+          ${isEditing ? `
+            ${otherRowsEdit}
+            <div class="item-sub mono">Subtotaal ${fmtMoney(otherSubtotal)}</div>
+          ` : `${otherRowsCompact}`}
+        </div>
+      ` : ""}
     </div>
   `;
 }
