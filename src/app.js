@@ -1442,9 +1442,16 @@ function renderTopbar(){
     const log = state.logs.find(x => x.id === active.id);
     if (log){
       const visual = getLogVisualState(log);
+      const segments = log.segments || [];
+      const totalWorkMinutes = segments
+        .filter(s => s.type === "work")
+        .reduce((sum, s) => sum + getSegmentMinutes(s), 0);
+      const totalBreakMinutes = segments
+        .filter(s => s.type === "break")
+        .reduce((sum, s) => sum + getSegmentMinutes(s), 0);
       topbar.classList.add(`nav--${visual.state}`);
       $("#topbarTitle").textContent = cname(log.customerId);
-      subtitleEl.textContent = formatLogDatePretty(log.date);
+      subtitleEl.innerHTML = `<span class="topsubtitle-total mono">${formatMinutesAsDuration(totalWorkMinutes)}</span><span class="topsubtitle-break mono"> • Pauze ${formatMinutesAsDuration(totalBreakMinutes)}</span>`;
       subtitleEl.classList.remove("hidden");
       linkedCustomerId = log.customerId || "";
     } else {
@@ -2666,24 +2673,10 @@ function renderLogSheet(id){
 
   function renderSegments(currentLog, editing){
     const segments = currentLog.segments || [];
-    const totalWorkMinutes = segments
-      .filter(s => s.type === "work")
-      .reduce((sum, s) => sum + getSegmentMinutes(s), 0);
-    const totalBreakMinutes = segments
-      .filter(s => s.type === "break")
-      .reduce((sum, s) => sum + getSegmentMinutes(s), 0);
 
     return `
       <section class="compact-section stack">
-        <div class="row space">
-          <div>
-            <div class="item-title">Totale werktijd</div>
-            <div class="small mono muted">Werk ${formatMinutesAsDuration(totalWorkMinutes)} • Pauze ${formatMinutesAsDuration(totalBreakMinutes)}</div>
-          </div>
-          <div class="rowtight">
-            ${editing ? `<button class="btn" id="addSegment" type="button">+ segment</button>` : ""}
-          </div>
-        </div>
+        ${editing ? `<div class="row row-actions-end"><button class="btn" id="addSegment" type="button">+ segment</button></div>` : ""}
         <div class="compact-lines">
           ${segments.map(s=>{
             const start = s.start ? fmtClock(s.start) : "…";
