@@ -2858,10 +2858,13 @@ function renderLogSheet(id){
     openSheet("settlement", settlement.id);
   }
 
+  const linkedAfrekeningMetaParts = [];
+  if (linkedAfrekening?.date) linkedAfrekeningMetaParts.push(formatDatePretty(linkedAfrekening.date));
+  if (linkedAfrekening?.id) linkedAfrekeningMetaParts.push(`#${String(linkedAfrekening.id).slice(0, 8)}`);
+
   $("#sheetBody").innerHTML = `
     <div class="stack log-detail-compact">
       ${renderLogHeader(log)}
-      ${renderLinkedAfrekeningRow(linkedAfrekening)}
       ${renderSegments(log, isEditing)}
 
       <section class="compact-section stack">
@@ -2894,6 +2897,12 @@ function renderLogSheet(id){
         ${settlementOptions}
       </select>
     </div>
+    ${linkedAfrekening?.id ? `
+      <button class="status-linked-chip" id="btnOpenLinkedAfrekeningFromStatus" type="button" aria-label="Open gekoppelde afrekening" title="Open gekoppelde afrekening">
+        <span class="title">Afrekening</span>
+        <span class="meta mono">${esc(linkedAfrekeningMetaParts.join(" · "))}</span>
+      </button>
+    ` : ""}
     <div style="flex:1"></div>
     <button class="iconbtn" id="btnLogEdit" type="button" aria-label="${isEditing ? "Gereed" : "Bewerk"}" title="${isEditing ? "Gereed" : "Bewerk"}">
       ${isEditing
@@ -2909,7 +2918,7 @@ function renderLogSheet(id){
     if (locked) return;
     openAfrekeningPickerForLog(log.id, { anchorEl: document.getElementById("logSettlementPicker") });
   });
-  document.getElementById("openLinkedAfrekening")?.addEventListener("click", ()=>{
+  document.getElementById("btnOpenLinkedAfrekeningFromStatus")?.addEventListener("click", ()=>{
     if (!linkedAfrekening?.id) return;
     onTapLinkedAfrekening(linkedAfrekening.id);
   });
