@@ -1589,12 +1589,6 @@ function measureBottomTabbarHeight(){
   return Math.round(tabbar.getBoundingClientRect().height) || 90;
 }
 
-function measureDetailActionBarHeight(){
-  const bar = document.getElementById("detailActionBar");
-  if (!bar || bar.classList.contains("hidden")) return 0;
-  return Math.round(bar.getBoundingClientRect().height) || 0;
-}
-
 function measureMoreActionBarHeight(){
   const bar = document.getElementById("moreActionBar");
   if (!bar || bar.classList.contains("hidden")) return 0;
@@ -1637,39 +1631,6 @@ function setStatusTabbar(htmlString){
     </div>
   `;
   setBottomBarHeights({ statusVisible: true });
-}
-
-function syncDetailBars(){
-  const active = currentView();
-  const isLogDetail = active.view === "logDetail";
-  const bar = document.getElementById("detailActionBar");
-  if (!bar) return;
-
-  if (!isLogDetail){
-    bar.classList.add("hidden");
-    bar.innerHTML = "";
-    bar.setAttribute("aria-hidden", "true");
-    document.documentElement.classList.remove("has-detail-actionbar");
-    document.documentElement.style.setProperty("--detail-actionbar-height", "0px");
-    return;
-  }
-
-  const editing = state.ui.editLogId === active.id;
-  bar.classList.remove("hidden");
-  bar.setAttribute("aria-hidden", "false");
-  bar.innerHTML = `
-    <div class="detail-actionbar-inner">
-      <button class="iconbtn" id="btnLogDetailEdit" type="button" title="${editing ? "Klaar" : "Bewerk"}" aria-label="${editing ? "Klaar" : "Bewerk"}">
-        ${editing
-          ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M5 12l5 5 9-9" stroke-linecap="round" stroke-linejoin="round"/></svg>`
-          : `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 20h9" stroke-linecap="round"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" stroke-linejoin="round"/></svg>`}
-      </button>
-    </div>
-  `;
-
-  bar.querySelector("#btnLogDetailEdit")?.addEventListener("click", ()=> toggleEditLog(active.id));
-  document.documentElement.classList.add("has-detail-actionbar");
-  document.documentElement.style.setProperty("--detail-actionbar-height", `${measureDetailActionBarHeight()}px`);
 }
 
 function syncMoreActionRow(){
@@ -1746,6 +1707,7 @@ function render(){
       rootPage.className = "page exitLeft";
     }
   } else {
+    clearStatusTabbar();
     if (ui.transition === "pop" && !detailPage.classList.contains("hidden")){
       detailPage.className = "page active";
       rootPage.className = "page exitLeft";
@@ -1762,7 +1724,6 @@ function render(){
       rootPage.className = "page active";
     }
   }
-  syncDetailBars();
   ui.transition = null;
 }
 
@@ -2794,6 +2755,19 @@ function renderLogSheet(id){
       </section>
     </div>
   `;
+
+  setStatusTabbar(`
+    <div style="flex:1"></div>
+    <button class="iconbtn" id="btnLogEdit" type="button" aria-label="${isEditing ? "Gereed" : "Bewerk"}" title="${isEditing ? "Gereed" : "Bewerk"}">
+      ${isEditing
+        ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5L19 7" stroke-linecap="round" stroke-linejoin="round"></path></svg>`
+        : `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21l3.5-.8L19 7.7a1.8 1.8 0 0 0 0-2.5l-.2-.2a1.8 1.8 0 0 0-2.5 0L3.8 17.5z"></path><path d="M14 5l5 5"></path></svg>`}
+    </button>
+  `);
+  document.getElementById("btnLogEdit")?.addEventListener("click", () => {
+    toggleEditLog(id);
+    renderSheet();
+  });
 
   // wire (autosave)
   $("#logNote").addEventListener("change", ()=>{
