@@ -1006,6 +1006,31 @@ function settlementColorClass(settlement){
 function settlementForLog(logId){
   return state.settlements.find(a => (a.logIds||[]).includes(logId)) || null;
 }
+function getLinkedAfrekeningIdForLog(log){
+  if (!log) return null;
+
+  const directIds = [log.afrekeningId, log.settlementId, log.linkedAfrekeningId]
+    .map(value => String(value || "").trim())
+    .filter(Boolean);
+  const inferredIds = (state.settlements || [])
+    .filter(settlement => (settlement.logIds || []).includes(log.id))
+    .map(settlement => settlement.id)
+    .filter(Boolean);
+
+  const linkedIds = [...new Set([...directIds, ...inferredIds])];
+  if (!linkedIds.length) return null;
+  if (linkedIds.length > 1){
+    console.warn("Multiple linked afrekeningen found for log; using first", {
+      logId: log.id,
+      afrekeningIds: linkedIds
+    });
+  }
+  return linkedIds[0] || null;
+}
+function getAfrekeningById(id){
+  if (!id) return null;
+  return (state.settlements || []).find(settlement => settlement.id === id) || null;
+}
 function settlementVisualState(settlement){
   const visual = getSettlementVisualState(settlement);
   if (visual.state === "paid") return "paid";
@@ -2660,7 +2685,9 @@ function renderLogSheet(id){
   const log = state.logs.find(l => l.id === id);
   if (!log){ closeSheet(); return; }
   $("#sheetTitle").textContent = "Werklog";
-  const af = settlementForLog(log.id);
+  const linkedAfrekeningId = getLinkedAfrekeningIdForLog(log);
+  const linkedAfrekening = getAfrekeningById(linkedAfrekeningId);
+  const af = linkedAfrekening || settlementForLog(log.id);
   const locked = false;
   $("#sheetActions").innerHTML = "";
 
@@ -2716,9 +2743,38 @@ function renderLogSheet(id){
     `;
   }
 
+  function renderLinkedAfrekeningRow(settlement){
+    if (!settlement) return "";
+    const metaParts = [];
+    if (settlement.date) metaParts.push(formatDatePretty(settlement.date));
+    metaParts.push(`#${String(settlement.id || "").slice(0, 8)}`);
+
+    return `
+      <section class="compact-section linked-afrekening-section">
+        <button class="linked-afrekening-row" type="button" id="openLinkedAfrekening" aria-label="Open gekoppelde afrekening">
+          <span class="linked-afrekening-left">
+            <svg class="icon linked-afrekening-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M10.6 13.4l2.8-2.8" stroke-linecap="round"/><path d="M7.8 16.2l-1.4 1.4a3 3 0 1 1-4.2-4.2l1.4-1.4a3 3 0 0 1 4.2 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M16.2 7.8l1.4-1.4a3 3 0 1 1 4.2 4.2l-1.4 1.4a3 3 0 0 1-4.2 0" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>
+              <span class="linked-afrekening-title">Afrekening</span>
+              <span class="linked-afrekening-meta">${esc(metaParts.join(" · "))}</span>
+            </span>
+          </span>
+          <span class="linked-afrekening-chevron" aria-hidden="true">›</span>
+        </button>
+      </section>
+    `;
+  }
+
+  function onTapLinkedAfrekening(afrekeningId){
+    const settlement = getAfrekeningById(afrekeningId);
+    if (!settlement) return;
+    openSheet("settlement", settlement.id);
+  }
+
   $("#sheetBody").innerHTML = `
     <div class="stack log-detail-compact">
       ${renderSegments(log, isEditing)}
+      ${renderLinkedAfrekeningRow(linkedAfrekening)}
 
       <section class="compact-section stack">
         <div class="row space">
@@ -2765,6 +2821,10 @@ function renderLogSheet(id){
   document.getElementById("btnLogSettlementPicker")?.addEventListener("click", ()=>{
     if (locked) return;
     openAfrekeningPickerForLog(log.id, { anchorEl: document.getElementById("logSettlementPicker") });
+  });
+  document.getElementById("openLinkedAfrekening")?.addEventListener("click", ()=>{
+    if (!linkedAfrekening?.id) return;
+    onTapLinkedAfrekening(linkedAfrekening.id);
   });
 
   // wire (autosave)
