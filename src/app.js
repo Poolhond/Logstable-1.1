@@ -2725,13 +2725,6 @@ function renderLogSheet(id){
 
   $("#sheetBody").innerHTML = `
     <div class="stack log-detail-compact">
-      <section class="compact-section compact-row">
-        <label>Afrekening</label>
-        <select id="logSettlement" ${locked ? "disabled" : ""}>
-          ${settlementOptions}
-        </select>
-      </section>
-
       ${renderSegments(log, isEditing)}
 
       <section class="compact-section stack">
@@ -2757,6 +2750,14 @@ function renderLogSheet(id){
   `;
 
   setStatusTabbar(`
+    <div class="status-log-link-wrap ${af ? "is-linked" : ""}">
+      <button class="status-icon-chip" id="btnLogSettlementPicker" type="button" aria-label="Koppel aan afrekening" title="Koppel aan afrekening">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M10.6 13.4l2.8-2.8" stroke-linecap="round"/><path d="M7.8 16.2l-1.4 1.4a3 3 0 1 1-4.2-4.2l1.4-1.4a3 3 0 0 1 4.2 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M16.2 7.8l1.4-1.4a3 3 0 1 1 4.2 4.2l-1.4 1.4a3 3 0 0 1-4.2 0" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <select id="logSettlementPicker" class="status-picker-select" ${locked ? "disabled" : ""} aria-label="Afrekening koppelen">
+        ${settlementOptions}
+      </select>
+    </div>
     <div style="flex:1"></div>
     <button class="iconbtn" id="btnLogEdit" type="button" aria-label="${isEditing ? "Gereed" : "Bewerk"}" title="${isEditing ? "Gereed" : "Bewerk"}">
       ${isEditing
@@ -2767,6 +2768,10 @@ function renderLogSheet(id){
   document.getElementById("btnLogEdit")?.addEventListener("click", () => {
     toggleEditLog(id);
     renderSheet();
+  });
+  document.getElementById("btnLogSettlementPicker")?.addEventListener("click", ()=>{
+    if (locked) return;
+    openAfrekeningPickerForLog(log.id, { anchorEl: document.getElementById("logSettlementPicker") });
   });
 
   // wire (autosave)
@@ -2887,9 +2892,9 @@ function renderLogSheet(id){
     renderSheet();
   });
 
-  $("#logSettlement").onchange = ()=>{
+  $("#logSettlementPicker").onchange = ()=>{
     if (locked) return;
-    const v = $("#logSettlement").value;
+    const v = $("#logSettlementPicker").value;
     actions.linkLogToSettlement(log.id, v);
     renderSheet();
   };
@@ -2963,6 +2968,13 @@ function buildSettlementSelectOptions(customerId, currentSettlementId){
   }
   options.push(`<option value="new">+ Nieuwe afrekening aanmaken…</option>`);
   return options.join("");
+}
+
+function openAfrekeningPickerForLog(logId, { anchorEl } = {}){
+  const log = state.logs.find(l => l.id === logId);
+  if (!log || !anchorEl) return;
+  anchorEl.focus({ preventScroll: true });
+  anchorEl.click();
 }
 
 function settlementLogbookSummary(s){
