@@ -1122,6 +1122,21 @@ body:not([data-view="meer"]) #moreActionBar{
   min-height:34px;
 }
 
+.no-select{
+  -webkit-user-select:none;
+  user-select:none;
+  -webkit-touch-callout:none;
+  -webkit-tap-highlight-color:transparent;
+  touch-action:manipulation;
+}
+
+.green-row,
+.green-row *{
+  -webkit-user-select:none;
+  user-select:none;
+  -webkit-touch-callout:none;
+}
+
 .log-green-icon{
   display:inline-flex;
   color:var(--muted);
