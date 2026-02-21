@@ -106,6 +106,13 @@ body{
   overflow:hidden;
   text-overflow:ellipsis;
 }
+.topsubtitle-total{
+  font-size:13px;
+  font-weight:600;
+}
+.topsubtitle-break{
+  opacity:.66;
+}
 
 .topbar.nav--free{ background: var(--topbar-bg); border-bottom:1px solid var(--border); }
 .topbar.nav--linked{ background: rgba(255,204,0,.18); border-bottom:2px solid rgba(255,204,0,.92); }
@@ -165,6 +172,7 @@ body{
 .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
 .row.space{ justify-content:space-between; }
 .rowtight{ display:flex; gap:8px; align-items:center; flex-wrap:nowrap; }
+.row-actions-end{ justify-content:flex-end; }
 
 
 .settlement-status-bar{
