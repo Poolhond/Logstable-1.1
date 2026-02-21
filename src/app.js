@@ -3022,41 +3022,82 @@ function renderLogSheet(id){
     });
   }
 
-  $("#sheetBody").querySelectorAll("[data-green-qty-step]").forEach(btn=>{
-    let longPressTriggered = false;
+  const bindStepButton = (btn, onTap, onHold)=>{
     let pressTimer = null;
-    const baseStep = Number(btn.getAttribute("data-green-qty-step") || "0");
+    let didLongPress = false;
+    let isPressing = false;
 
     const clearPress = ()=>{
       if (pressTimer){
         clearTimeout(pressTimer);
         pressTimer = null;
       }
+      isPressing = false;
     };
 
-    btn.addEventListener("pointerdown", ()=>{
-      longPressTriggered = false;
-      clearPress();
+    const down = (e)=>{
+      if (isPressing) return;
+      isPressing = true;
+      didLongPress = false;
+      e.preventDefault();
+      e.stopPropagation();
       pressTimer = setTimeout(()=>{
-        longPressTriggered = true;
+        if (!isPressing) return;
+        didLongPress = true;
+        onHold();
+      }, 450);
+    };
+
+    const up = (e)=>{
+      e.preventDefault();
+      e.stopPropagation();
+      if (!isPressing) return;
+      const wasLongPress = didLongPress;
+      clearPress();
+      if (!wasLongPress) onTap();
+    };
+
+    btn.classList.add("no-select");
+    btn.addEventListener("contextmenu", (e)=>{
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    btn.addEventListener("pointerdown", down);
+    btn.addEventListener("pointerup", up);
+    btn.addEventListener("pointercancel", up);
+    btn.addEventListener("pointerleave", up);
+
+    btn.addEventListener("touchstart", down, { passive:false });
+    btn.addEventListener("touchend", up, { passive:false });
+    btn.addEventListener("touchcancel", up, { passive:false });
+    btn.addEventListener("touchmove", (e)=>{
+      if (!isPressing) return;
+      e.preventDefault();
+      e.stopPropagation();
+    }, { passive:false });
+
+    btn.addEventListener("click", (e)=>{
+      if (!didLongPress) return;
+      didLongPress = false;
+      e.preventDefault();
+      e.stopPropagation();
+    });
+  };
+
+  $("#sheetBody").querySelectorAll("[data-green-qty-step]").forEach(btn=>{
+    const baseStep = Number(btn.getAttribute("data-green-qty-step") || "0");
+    bindStepButton(
+      btn,
+      ()=>{
+        adjustLogGreenQty(log.id, baseStep);
+        renderSheet();
+      },
+      ()=>{
         adjustLogGreenQty(log.id, baseStep > 0 ? 0.5 : -0.5);
         renderSheet();
-      }, 450);
-    });
-
-    const cancelPress = ()=> clearPress();
-    btn.addEventListener("pointerup", cancelPress);
-    btn.addEventListener("pointercancel", cancelPress);
-    btn.addEventListener("pointerleave", cancelPress);
-
-    btn.addEventListener("click", ()=>{
-      if (longPressTriggered){
-        longPressTriggered = false;
-        return;
       }
-      adjustLogGreenQty(log.id, baseStep);
-      renderSheet();
-    });
+    );
   });
 
   $("#logSettlementPicker").onchange = ()=>{
@@ -3130,7 +3171,7 @@ function renderProducts(log, { context = "log", isEditing = false } = {}){
 
   return `
     <div class="log-items-list log-items-list-minimal">
-      <div class="log-green-row">
+      <div class="log-green-row green-row no-select">
         <span class="log-green-icon" aria-hidden="true">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M5 15c2.2-6.2 8.4-8.7 14-9-1.1 5.7-3 11.8-9 14-4 1.4-7-1.3-5-5Z" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 14.5c2 .2 4.6-.4 7.5-2.4" stroke-linecap="round"/></svg>
         </span>
