@@ -3514,251 +3514,427 @@ function renderExtraLineRow(line, isEdit) {
   `;
 }
 
-function renderSettlementSheet(id){
+function renderSettlementSheet(id) {
   const s = state.settlements.find(x => x.id === id);
-  if (!s){ closeSheet(); return; }
-  if (!("invoicePaid" in s)) s.invoicePaid = false;
-  if (!("cashPaid" in s)) s.cashPaid = false;
-  if (!("markedCalculated" in s)) s.markedCalculated = s.status === "calculated";
-  if (!("isCalculated" in s)) s.isCalculated = isSettlementCalculated(s);
-  if (!("calculatedAt" in s)) s.calculatedAt = s.isCalculated ? (s.createdAt || now()) : null;
-  ensureDefaultSettlementLines(s);
-  syncSettlementStatus(s);
+  if (!s) { closeSheet(); return; }
+
+  // Zorg voor basisvelden
+  if (!('invoicePaid' in s)) s.invoicePaid = false;
+  if (!('cashPaid' in s)) s.cashPaid = false;
+  if (!('markedCalculated' in s)) s.markedCalculated = s.status === 'calculated';
+  if (!('isCalculated' in s)) s.isCalculated = isSettlementCalculated(s);
+  s.lines = s.lines || [];
 
   const isEdit = isSettlementEditing(s.id);
-  const customerOptions = state.customers.map(c => `<option value="${c.id}" ${c.id===s.customerId?"selected":""}>${esc(c.nickname||c.name||"Klant")}</option>`).join('');
+  const visual = getSettlementVisualState(s);
+
+  // ---- Core producten vinden ----
+  const werkProduct = state.products.find(p => (p.name || '').toLowerCase() === 'werk');
+  const groenProduct = state.products.find(p => (p.name || '').toLowerCase() === 'groen');
+
+  const invWerkLine  = findCoreLine(s, 'invoice', 'Werk');
+  const invGroenLine = findCoreLine(s, 'invoice', 'Groen');
+  const cashWerkLine  = findCoreLine(s, 'cash', 'Werk');
+  const cashGroenLine = findCoreLine(s, 'cash', 'Groen');
+
+  const invWerkQty   = Number(invWerkLine?.qty || 0);
+  const invGroenQty  = Number(invGroenLine?.qty || 0);
+  const cashWerkQty  = Number(cashWerkLine?.qty || 0);
+  const cashGroenQty = Number(cashGroenLine?.qty || 0);
+
+  const invWerkId   = invWerkLine?.id  || 'new:invoice:Werk';
+  const invGroenId  = invGroenLine?.id || 'new:invoice:Groen';
+  const cashWerkId  = cashWerkLine?.id  || 'new:cash:Werk';
+  const cashGroenId = cashGroenLine?.id || 'new:cash:Groen';
+
+  const werkUnitPrice  = Number(werkProduct?.unitPrice || state.settings.hourlyRate || 38);
+  const groenUnitPrice = Number(groenProduct?.unitPrice || 38);
+
+  // ---- Extra lijnen (niet werk/groen) ----
+  const isCore = (l) => {
+    const pid = l.productId;
+    return (werkProduct && pid === werkProduct.id) || (groenProduct && pid === groenProduct.id);
+  };
+  const extraInv  = (s.lines).filter(l => (l.bucket || 'invoice') === 'invoice' && !isCore(l));
+  const extraCash = (s.lines).filter(l => l.bucket === 'cash' && !isCore(l));
+
+  // ---- Totalen ----
+  const pay = settlementPaymentState(s);
+  const hasCash = cashWerkQty > 0 || cashGroenQty > 0 || extraCash.some(l => Number(l.qty || 0) > 0);
+
+  // ---- Gekoppelde logs ----
+  const linkedLogs = (s.logIds || [])
+    .map(id => state.logs.find(l => l.id === id))
+    .filter(Boolean)
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+  const totalWorkMs = linkedLogs.reduce((acc, l) => acc + sumWorkMs(l), 0);
+  const rawHours = totalWorkMs / 3600000;
+  const roundedHours = roundToHalfHour(rawHours);
+  const totalGreenFromLogs = round2(linkedLogs.reduce((acc, l) => acc + countGreenItems(l), 0));
+
+  // Beschikbare logs voor koppeling (edit mode)
   const availableLogs = state.logs
     .filter(l => l.customerId === s.customerId)
-    .filter(log => {
-      const isInThisSettlement = (s.logIds || []).includes(log.id);
-      const linkedElsewhere = isLogLinkedElsewhere(log.id, s.id);
-      return isInThisSettlement || !linkedElsewhere;
-    })
-    .sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+    .filter(log => (s.logIds || []).includes(log.id) || !isLogLinkedElsewhere(log.id, s.id))
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-  const pay = settlementPaymentState(s);
-  const visual = getSettlementVisualState(s);
-  const summary = settlementLogbookSummary(s);
+  const customerOptions = state.customers
+    .map(c => `<option value="${c.id}" ${c.id === s.customerId ? 'selected' : ''}>${esc(c.nickname || c.name || 'Klant')}</option>`)
+    .join('');
 
+  // ---- Stepper HTML helper ----
+  function stepper(lineId, qty, step) {
+    return `
+      <div class="sett-qty-control no-select">
+        <button class="sett-qty-btn" data-line-step="${lineId}" data-step="${-step}" type="button" aria-label="Min">−</button>
+        <span class="sett-qty-val">${fmtQty(qty)}</span>
+        <button class="sett-qty-btn" data-line-step="${lineId}" data-step="${step}" type="button" aria-label="Plus">+</button>
+      </div>
+    `;
+  }
+
+  // ---- Log rows HTML ----
+  const logRowsHtml = isEdit
+    ? availableLogs.slice(0, 30).map(l => {
+        const checked = (s.logIds || []).includes(l.id);
+        const mins = Math.floor(sumWorkMs(l) / 60000);
+        return `
+          <label class="sett-log-row">
+            <div class="sett-log-info">
+              <span class="sett-log-date">${esc(formatDatePretty(l.date))}</span>
+              <span class="sett-log-dur">${formatDurationCompact(mins)}</span>
+            </div>
+            <input type="checkbox" data-logpick="${l.id}" ${checked ? 'checked' : ''} />
+          </label>
+        `;
+      }).join('')
+    : linkedLogs.length
+      ? linkedLogs.map(l => {
+          const mins = Math.floor(sumWorkMs(l) / 60000);
+          return `
+            <button class="sett-log-row" type="button" data-open-linked-log="${l.id}">
+              <div class="sett-log-info">
+                <span class="sett-log-date">${esc(formatDatePretty(l.date))}</span>
+                <span class="sett-log-dur">${formatDurationCompact(mins)}</span>
+              </div>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="color:var(--muted);flex-shrink:0"><path d="M9 6l6 6-6 6" stroke-linecap="round"/></svg>
+            </button>
+          `;
+        }).join('')
+      : '<div class="small muted" style="padding:4px 0">Geen logs gekoppeld.</div>';
+
+  // Ref bar: gewerkte tijd uit logs → afgerond
+  const refBarHtml = linkedLogs.length > 0 ? `
+    <div class="sett-ref-bar">
+      <span>${formatDurationCompact(Math.floor(totalWorkMs / 60000))}</span>
+      <span class="sett-ref-arrow">→</span>
+      <span class="sett-ref-rounded">${roundedHours}u afgerond</span>
+      ${totalGreenFromLogs > 0 ? `<span class="sett-ref-arrow">·</span><span class="sett-ref-rounded">${fmtQty(totalGreenFromLogs)}× groen</span>` : ''}
+    </div>
+  ` : '';
+
+  // ---- Totalen rijen helper ----
+  function totalsHtml(bucket) {
+    if (bucket === 'invoice') {
+      return `
+        <div class="sett-totals">
+          <div class="sett-totals-row"><span class="sett-totals-label">Subtotaal</span><span class="sett-totals-num">${fmtMoney(pay.invoiceTotals.subtotal)}</span></div>
+          <div class="sett-totals-row"><span class="sett-totals-label">BTW 21%</span><span class="sett-totals-num">${fmtMoney(pay.invoiceTotals.vat)}</span></div>
+          <div class="sett-totals-row is-total"><strong>Totaal</strong><strong class="sett-totals-num">${fmtMoney(pay.invoiceTotal)}</strong></div>
+        </div>
+      `;
+    }
+    return `
+      <div class="sett-totals">
+        <div class="sett-totals-row is-total"><strong>Totaal cash</strong><strong class="sett-totals-num">${fmtMoney(pay.cashTotal)}</strong></div>
+      </div>
+    `;
+  }
+
+  // ---- Bouw de volledige HTML ----
   $('#sheetActions').innerHTML = '';
   $('#sheetBody').style.paddingBottom = 'calc(var(--bottom-tabbar-height) + var(--status-tabbar-height) + env(safe-area-inset-bottom) + 24px)';
 
   $('#sheetBody').innerHTML = `
-    <div class="stack settlement-detail ${visual.accentClass}">
-      <div class="section stack">
-        <div class="section-title-row"><h2>Gekoppelde logs</h2>${isEdit ? `<button class="btn" id="btnRecalc">Herbereken uit logs</button>` : ""}</div>
-        <div class="flat-list" id="sLogs">
-          ${availableLogs.slice(0,30).map(l=>{
-            const checked = (s.logIds||[]).includes(l.id);
-            const rowMeta = `
-              <div class="item-sub settlement-log-cols mono tabular">
-                <span class="log-col-date">${esc(formatDatePretty(l.date))}</span>
-                <span class="log-col-time">${formatDurationCompact(Math.floor(sumWorkMs(l)/60000))}</span>
-                <span class="log-col-price">${formatMoneyEUR(sumItemsAmount(l))}</span>
-                <span class="log-col-products">${countExtraProducts(l)}</span>
-              </div>`;
-            if (isEdit){
-              return `<label class="flat-row"><div class="row space"><div class="item-main">${rowMeta}</div><div class="item-right"><input type="checkbox" data-logpick="${l.id}" ${checked ? "checked" : ""}/></div></div></label>`;
-            }
-            if (!checked) return "";
-            return `<button class="flat-row item-row-button" type="button" role="button" data-open-linked-log="${l.id}"><div class="item-main">${rowMeta}</div></button>`;
-          }).join('') || `<div class="small">Geen gekoppelde logs.</div>`}
+    <div class="stack sett-detail ${visual.accentClass}">
+
+      <!-- LOGS SECTIE -->
+      <div class="sett-section">
+        <div class="sett-section-head">
+          <h2>Gekoppelde logs${linkedLogs.length > 0 ? ` <span style="opacity:.5;font-weight:400">(${linkedLogs.length})</span>` : ''}</h2>
+          ${linkedLogs.length > 0
+            ? `<button class="btn-bereken" id="btnAutoFill" type="button">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.51 15a9 9 0 1 0 .49-4.07" stroke-linecap="round"/></svg>
+                Bereken
+               </button>`
+            : ''}
         </div>
+        ${logRowsHtml}
+        ${refBarHtml}
       </div>
 
-      <div class="section stack">
-        <div class="section-title-row"><h2>Logboek totaal</h2></div>
-        ${isEdit ? `<div class="settlement-totals-row mono tabular"><span class="totals-time">${formatDurationCompact(Math.floor(summary.totalWorkMs/60000))}</span><span class="totals-price">${formatMoneyEUR(summary.totalLogPrice)}</span><span class="totals-products">${summary.linkedCount}</span></div>` : `<button class="settlement-totals-row settlement-totals-button mono tabular" id="openSettlementOverview" type="button"><span class="totals-time">${formatDurationCompact(Math.floor(summary.totalWorkMs/60000))}</span><span class="totals-price">${formatMoneyEUR(summary.totalLogPrice)}</span><span class="totals-products">${summary.linkedCount}</span></button>`}
+      <!-- FACTUUR SECTIE -->
+      <div class="sett-section">
+        <div class="sett-section-head">
+          <h2>Factuur</h2>
+          <span class="sett-section-amount${pay.invoiceTotal === 0 ? ' is-zero' : ''}">${fmtMoney(pay.invoiceTotal)}</span>
+        </div>
+
+        <div class="sett-product-row">
+          <div class="sett-product-label">
+            <span class="sett-product-name">Werk</span>
+            <span class="sett-product-rate">€${werkUnitPrice}/uur</span>
+          </div>
+          ${stepper(invWerkId, invWerkQty, 0.5)}
+          <div class="sett-product-total${invWerkQty === 0 ? ' is-zero' : ''}">${fmtMoney(invWerkQty * werkUnitPrice)}</div>
+        </div>
+
+        <div class="sett-product-row">
+          <div class="sett-product-label">
+            <span class="sett-product-name">Groen</span>
+            <span class="sett-product-rate">€${groenUnitPrice}/keer</span>
+          </div>
+          ${stepper(invGroenId, invGroenQty, 1)}
+          <div class="sett-product-total${invGroenQty === 0 ? ' is-zero' : ''}">${fmtMoney(invGroenQty * groenUnitPrice)}</div>
+        </div>
+
+        ${extraInv.map(l => renderExtraLineRow(l, isEdit)).join('')}
+
+        ${totalsHtml('invoice')}
+
+        ${isEdit ? `<button class="btn" id="addInvoiceLine" type="button" style="min-height:34px;padding:6px 12px;font-size:12px;">+ Extra product</button>` : ''}
       </div>
 
-      <div class="section stack">
-        <div class="section-title-row"><h2>Factuur</h2><div class="section-value">${formatMoneyEUR(pay.invoiceTotal)}</div></div>
-        ${renderLinesTable(s, 'invoice', { readOnly: !isEdit })}
-        ${isEdit ? `<button class="btn" id="addInvoiceLine">+ regel</button>` : ""}
+      <!-- CASH SECTIE -->
+      <div class="sett-section${!hasCash ? ' cash-empty' : ''}">
+        <div class="sett-section-head">
+          <h2>Cash</h2>
+          <span class="sett-section-amount${!hasCash ? ' is-zero' : ''}">${fmtMoney(pay.cashTotal)}</span>
+        </div>
+
+        <div class="sett-product-row">
+          <div class="sett-product-label">
+            <span class="sett-product-name">Werk</span>
+            <span class="sett-product-rate">€${werkUnitPrice}/uur</span>
+          </div>
+          ${stepper(cashWerkId, cashWerkQty, 0.5)}
+          <div class="sett-product-total${cashWerkQty === 0 ? ' is-zero' : ''}">${fmtMoney(cashWerkQty * werkUnitPrice)}</div>
+        </div>
+
+        <div class="sett-product-row">
+          <div class="sett-product-label">
+            <span class="sett-product-name">Groen</span>
+            <span class="sett-product-rate">€${groenUnitPrice}/keer</span>
+          </div>
+          ${stepper(cashGroenId, cashGroenQty, 1)}
+          <div class="sett-product-total${cashGroenQty === 0 ? ' is-zero' : ''}">${fmtMoney(cashGroenQty * groenUnitPrice)}</div>
+        </div>
+
+        ${extraCash.map(l => renderExtraLineRow(l, isEdit)).join('')}
+
+        ${totalsHtml('cash')}
+
+        ${isEdit ? `<button class="btn" id="addCashLine" type="button" style="min-height:34px;padding:6px 12px;font-size:12px;">+ Extra product</button>` : ''}
       </div>
 
-      <div class="section stack">
-        <div class="section-title-row"><h2>Cash</h2><div class="section-value">${formatMoneyEUR(pay.cashTotal)}</div></div>
-        ${renderLinesTable(s, 'cash', { readOnly: !isEdit })}
-        ${isEdit ? `<button class="btn" id="addCashLine">+ regel</button>` : ""}
-      </div>
+      <!-- NOTITIE -->
+      ${(s.note || isEdit) ? `
+        <div class="sett-section">
+          <h2>Notitie</h2>
+          ${isEdit
+            ? `<textarea id="sNote" rows="3">${esc(s.note || '')}</textarea>`
+            : `<div class="small">${esc(s.note || '—')}</div>`}
+        </div>
+      ` : ''}
 
-      <div class="section stack">
-        <h2>Notitie</h2>
-        ${isEdit ? `<textarea id="sNote" rows="3">${esc(s.note||"")}</textarea>` : `<div class="small">${esc(s.note||"—")}</div>`}
-      </div>
-
+      <!-- EDIT META (klant, datum, verwijder) -->
       ${isEdit ? `
-      <div class="section stack">
-        <h2>Acties</h2>
-        <div class="compact-row"><label>Klant</label><div><select id="sCustomer">${customerOptions}</select></div></div>
-        <div class="compact-row"><label>Datum</label><div><input id="sDate" type="date" value="${esc(s.date||todayISO())}" /></div></div>
-        <button class="btn danger" id="delSettlement">Verwijder</button>
-      </div>` : ""}
+        <div class="sett-section sett-edit-meta">
+          <h2>Details</h2>
+          <div class="compact-row"><label>Klant</label><select id="sCustomer">${customerOptions}</select></div>
+          <div class="compact-row"><label>Datum</label><input id="sDate" type="date" value="${esc(s.date || todayISO())}" /></div>
+          <button class="btn danger" id="delSettlement" style="margin-top:4px;">Verwijder afrekening</button>
+        </div>
+      ` : ''}
+
     </div>
   `;
 
+  // ---- Status bar ----
   setStatusTabbar(`
     <div class="settlement-status-bar">
       ${renderSettlementStatusIcons(s)}
     </div>
-    <button class="iconbtn" id="btnSettlementEdit" type="button" aria-label="${isEdit ? "Gereed" : "Bewerk"}" title="${isEdit ? "Gereed" : "Bewerk"}">
+    <button class="iconbtn" id="btnSettlementEdit" type="button"
+      aria-label="${isEdit ? 'Gereed' : 'Bewerk'}" title="${isEdit ? 'Gereed' : 'Bewerk'}">
       ${isEdit
-        ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5L19 7" stroke-linecap="round" stroke-linejoin="round"></path></svg>`
-        : `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21l3.5-.8L19 7.7a1.8 1.8 0 0 0 0-2.5l-.2-.2a1.8 1.8 0 0 0-2.5 0L3.8 17.5z"></path><path d="M14 5l5 5"></path></svg>`}
+        ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+        : `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21l3.5-.8L19 7.7a1.8 1.8 0 0 0 0-2.5l-.2-.2a1.8 1.8 0 0 0-2.5 0L3.8 17.5z"/><path d="M14 5l5 5"/></svg>`}
     </button>
   `);
 
-  $('#toggleCalculated')?.addEventListener('click', ()=>{
-    const calculated = isSettlementCalculated(s);
-    if (isEdit){
-      if (calculated){
-        actions.editSettlement(s.id, (draft)=>{
-          uncalculateSettlement(draft);
-        });
-      } else {
-        actions.calculateSettlement(s.id);
-      }
-      renderSheet();
-      return;
-    }
-    if (!calculated){
-      actions.calculateSettlement(s.id);
-    }
-    renderSheet();
-  });
-  $('#toggleInvoicePaid')?.addEventListener('click', ()=>{
-    actions.setInvoicePaid(s.id, !s.invoicePaid);
-    renderSheet();
-  });
-  $('#toggleCashPaid')?.addEventListener('click', ()=>{
-    actions.setCashPaid(s.id, !s.cashPaid);
-    renderSheet();
-  });
-  $('#btnSettlementEdit')?.addEventListener('click', ()=>{
+  // ---- Event handlers ----
+
+  document.getElementById('btnSettlementEdit')?.addEventListener('click', () => {
     toggleEditSettlement(s.id);
     renderSheet();
   });
 
-  if (!isEdit){
-    $('#sheetBody').querySelectorAll('[data-open-linked-log]').forEach(btn=>{
-      btn.addEventListener('click', ()=> openSheet('log', btn.getAttribute('data-open-linked-log')));
-    });
-    $('#openSettlementOverview')?.addEventListener('click', ()=>{
-      pushView({ view: 'settlementLogOverview', id: s.id });
-    });
-  }
+  document.getElementById('toggleCalculated')?.addEventListener('click', () => {
+    if (isSettlementCalculated(s)) {
+      actions.editSettlement(s.id, draft => uncalculateSettlement(draft));
+    } else {
+      actions.calculateSettlement(s.id);
+    }
+    renderSheet();
+  });
+  document.getElementById('toggleInvoicePaid')?.addEventListener('click', () => {
+    actions.setInvoicePaid(s.id, !s.invoicePaid);
+    renderSheet();
+  });
+  document.getElementById('toggleCashPaid')?.addEventListener('click', () => {
+    actions.setCashPaid(s.id, !s.cashPaid);
+    renderSheet();
+  });
 
-  if (isEdit){
-    $('#delSettlement')?.addEventListener('click', ()=>{
+  document.getElementById('btnAutoFill')?.addEventListener('click', () => {
+    actions.editSettlement(s.id, draft => autoFillFromLogs(draft));
+    renderSheet();
+  });
+
+  document.getElementById('sheetBody').querySelectorAll('[data-line-step]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const lineId = btn.getAttribute('data-line-step');
+      const step = Number(btn.getAttribute('data-step') || 0);
+      if (lineId.startsWith('new:')) {
+        const parts = lineId.split(':');
+        const bucket = parts[1];
+        const productName = parts[2];
+        actions.editSettlement(s.id, draft => {
+          const line = ensureCoreLine(draft, bucket, productName);
+          line.qty = Math.max(0, round2(Number(line.qty || 0) + step));
+          syncSettlementAmounts(draft);
+        });
+      } else {
+        actions.editSettlement(s.id, draft => {
+          const line = (draft.lines || []).find(l => l.id === lineId);
+          if (!line) return;
+          line.qty = Math.max(0, round2(Number(line.qty || 0) + step));
+          syncSettlementAmounts(draft);
+        });
+      }
+      renderSheet();
+    });
+  });
+
+  document.getElementById('sheetBody').querySelectorAll('[data-logpick]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const logId = cb.getAttribute('data-logpick');
+      const other = settlementForLog(logId);
+      if (other && other.id !== s.id) {
+        alert('Deze log zit al in een andere afrekening. Ontkoppel daar eerst.');
+        cb.checked = false;
+        return;
+      }
+      actions.editSettlement(s.id, draft => {
+        if (cb.checked) draft.logIds = Array.from(new Set([...(draft.logIds || []), logId]));
+        else draft.logIds = (draft.logIds || []).filter(x => x !== logId);
+      });
+      renderSheet();
+    });
+  });
+
+  document.getElementById('sheetBody').querySelectorAll('[data-open-linked-log]').forEach(btn => {
+    btn.addEventListener('click', () => openSheet('log', btn.getAttribute('data-open-linked-log')));
+  });
+
+  document.getElementById('addInvoiceLine')?.addEventListener('click', () => {
+    actions.editSettlement(s.id, draft => addSettlementLine(draft, 'invoice'));
+    renderSheet();
+  });
+  document.getElementById('addCashLine')?.addEventListener('click', () => {
+    actions.editSettlement(s.id, draft => addSettlementLine(draft, 'cash'));
+    renderSheet();
+  });
+
+  document.getElementById('sheetBody').querySelectorAll('[data-line-qty]').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const lineId = inp.getAttribute('data-line-qty');
+      actions.editSettlement(s.id, draft => {
+        const target = (draft.lines || []).find(l => l.id === lineId);
+        if (target) target.qty = Number(String(inp.value).replace(',', '.') || '0');
+        syncSettlementAmounts(draft);
+      });
+      renderSheet();
+    });
+  });
+  document.getElementById('sheetBody').querySelectorAll('[data-line-price]').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const lineId = inp.getAttribute('data-line-price');
+      actions.editSettlement(s.id, draft => {
+        const target = (draft.lines || []).find(l => l.id === lineId);
+        if (target) target.unitPrice = Number(String(inp.value).replace(',', '.') || '0');
+        syncSettlementAmounts(draft);
+      });
+      renderSheet();
+    });
+  });
+  document.getElementById('sheetBody').querySelectorAll('[data-line-del]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const lineId = btn.getAttribute('data-line-del');
+      if (!confirmDelete('Regel verwijderen')) return;
+      actions.editSettlement(s.id, draft => {
+        draft.lines = (draft.lines || []).filter(l => l.id !== lineId);
+        syncSettlementAmounts(draft);
+      });
+      renderSheet();
+    });
+  });
+  document.getElementById('sheetBody').querySelectorAll('[data-line-product]').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const lineId = sel.getAttribute('data-line-product');
+      const productId = sel.value || null;
+      const product = productId ? getProduct(productId) : null;
+      actions.editSettlement(s.id, draft => {
+        const target = (draft.lines || []).find(l => l.id === lineId);
+        if (!target) return;
+        target.productId = productId;
+        if (product) {
+          target.name = product.name;
+          target.description = product.name;
+          target.unitPrice = Number(product.unitPrice || 0);
+        }
+        syncSettlementAmounts(draft);
+      });
+      renderSheet();
+    });
+  });
+
+  if (isEdit) {
+    document.getElementById('delSettlement')?.addEventListener('click', () => {
       if (!confirmDelete(`Afrekening ${formatDatePretty(s.date)} — ${cname(s.customerId)}`)) return;
       actions.deleteSettlement(s.id);
       closeSheet();
     });
-
-    $('#sCustomer')?.addEventListener('change', ()=>{
-      actions.editSettlement(s.id, (draft)=>{
-        draft.customerId = $('#sCustomer').value;
+    document.getElementById('sCustomer')?.addEventListener('change', () => {
+      actions.editSettlement(s.id, draft => {
+        draft.customerId = document.getElementById('sCustomer').value;
         draft.logIds = [];
       });
       renderSheet();
     });
-    $('#sDate')?.addEventListener('change', ()=>{
-      actions.editSettlement(s.id, (draft)=>{
-        draft.date = ($('#sDate').value||'').trim() || todayISO();
+    document.getElementById('sDate')?.addEventListener('change', () => {
+      actions.editSettlement(s.id, draft => {
+        draft.date = (document.getElementById('sDate').value || '').trim() || todayISO();
       });
       renderSheet();
     });
-    $('#sNote')?.addEventListener('change', ()=>{
-      actions.editSettlement(s.id, (draft)=>{
-        draft.note = ($('#sNote').value || '').trim();
+    document.getElementById('sNote')?.addEventListener('change', () => {
+      actions.editSettlement(s.id, draft => {
+        draft.note = (document.getElementById('sNote').value || '').trim();
       });
     });
-
-    $('#sheetBody').querySelectorAll('[data-logpick]').forEach(cb=>{
-      cb.addEventListener('change', ()=>{
-        const logId = cb.getAttribute('data-logpick');
-        const other = settlementForLog(logId);
-        if (other && other.id !== s.id){
-          alert('Deze log zit al in een andere afrekening. Open die afrekening of ontkoppel eerst.');
-          cb.checked = false;
-          return;
-        }
-        actions.editSettlement(s.id, (draft)=>{
-          if (cb.checked) draft.logIds = Array.from(new Set([...(draft.logIds||[]), logId]));
-          else draft.logIds = (draft.logIds||[]).filter(x => x !== logId);
-        });
-        renderSheet();
-      });
-    });
-
-    $('#btnRecalc')?.addEventListener('click', ()=>{
-      actions.calculateSettlement(s.id);
-      renderSheet();
-    });
-
-    $('#sheetBody').querySelectorAll('[data-line-qty]').forEach(inp=>{
-      inp.addEventListener('change', ()=>{
-        const line = s.lines.find(x=>x.id===inp.getAttribute('data-line-qty'));
-        if (!line) return;
-        actions.editSettlement(s.id, (draft)=>{
-          const target = draft.lines.find(x=>x.id===inp.getAttribute('data-line-qty'));
-          if (target) target.qty = Number(String(inp.value).replace(',', '.')||'0');
-        });
-        renderSheet();
-      });
-    });
-    $('#sheetBody').querySelectorAll('[data-line-price]').forEach(inp=>{
-      inp.addEventListener('change', ()=>{
-        const line = s.lines.find(x=>x.id===inp.getAttribute('data-line-price'));
-        if (!line) return;
-        actions.editSettlement(s.id, (draft)=>{
-          const target = draft.lines.find(x=>x.id===inp.getAttribute('data-line-price'));
-          if (target) target.unitPrice = Number(String(inp.value).replace(',', '.')||'0');
-        });
-        renderSheet();
-      });
-    });
-    $('#sheetBody').querySelectorAll('[data-line-del]').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        const lineId = btn.getAttribute('data-line-del');
-        if (!confirmDelete('Regel verwijderen')) return;
-        actions.editSettlement(s.id, (draft)=>{
-          draft.lines = (draft.lines||[]).filter(x=>x.id!==lineId);
-        });
-        renderSheet();
-      });
-    });
-    $('#sheetBody').querySelectorAll('[data-line-product]').forEach(sel=>{
-      sel.addEventListener('change', ()=>{
-        const line = s.lines.find(x=>x.id===sel.getAttribute('data-line-product'));
-        if (!line) return;
-        const productId = sel.value || null;
-        const product = productId ? getProduct(productId) : null;
-        actions.editSettlement(s.id, (draft)=>{
-          const target = draft.lines.find(x=>x.id===sel.getAttribute('data-line-product'));
-          if (!target) return;
-          target.productId = productId;
-          if (product){
-            target.name = product.name;
-            target.description = product.name;
-            target.unitPrice = Number(product.unitPrice || 0);
-            if ((target.bucket || 'invoice') === 'invoice') target.vatRate = Number(product.vatRate ?? 0.21);
-          }
-        });
-        renderSheet();
-      });
-    });
-
-    $('#addInvoiceLine')?.addEventListener('click', ()=>{
-      actions.editSettlement(s.id, (draft)=> addSettlementLine(draft, 'invoice'));
-      renderSheet();
-    });
-    $('#addCashLine')?.addEventListener('click', ()=>{
-      actions.editSettlement(s.id, (draft)=> addSettlementLine(draft, 'cash'));
-      renderSheet();
-    });
-
   }
 }
 
