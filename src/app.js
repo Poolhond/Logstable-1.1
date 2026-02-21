@@ -1291,10 +1291,9 @@ const actions = {
     commit();
   },
   addGreenToLog(logId){
-      if (!greenProduct) return;
-    const added = addProductToLog(logId, greenProduct.id, 1, greenProduct.unitPrice);
-    if (!added) return;
-    commit();
+    // Zelfde mechanisme als de + in log detail
+    adjustLogGreenQty(logId, +1);
+    // adjustLogGreenQty gebruikt actions.editLog -> commit gebeurt daar al
   },
   editLog(logId, updater){
     const log = state.logs.find(l => l.id === logId);
