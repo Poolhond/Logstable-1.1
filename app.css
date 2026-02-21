@@ -958,6 +958,24 @@ body:not([data-view="meer"]) #moreActionBar{
   padding:8px 0;
 }
 
+.log-detail-header{
+  padding-top:4px;
+  padding-bottom:10px;
+}
+
+.log-detail-header-main{
+  margin-top:2px;
+  font-size:22px;
+  font-weight:700;
+  line-height:1.2;
+}
+
+.log-detail-header-sub{
+  margin-top:2px;
+  font-size:13px;
+  color:var(--muted);
+}
+
 .log-detail-compact .compact-section:last-child{
   border-bottom:0;
 }

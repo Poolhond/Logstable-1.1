@@ -2840,6 +2840,18 @@ function renderLogSheet(id){
     `;
   }
 
+  function renderLogHeader(currentLog){
+    const prettyDate = formatLogDatePretty(currentLog.date || "");
+    const startTime = getStartTime(currentLog);
+
+    return `
+      <section class="compact-section log-detail-header">
+        <div class="log-detail-header-main">${esc(prettyDate || currentLog.date || "—")}</div>
+        <div class="log-detail-header-sub mono">${esc(startTime)}</div>
+      </section>
+    `;
+  }
+
   function onTapLinkedAfrekening(afrekeningId){
     const settlement = getAfrekeningById(afrekeningId);
     if (!settlement) return;
@@ -2848,6 +2860,7 @@ function renderLogSheet(id){
 
   $("#sheetBody").innerHTML = `
     <div class="stack log-detail-compact">
+      ${renderLogHeader(log)}
       ${renderLinkedAfrekeningRow(linkedAfrekening)}
       ${renderSegments(log, isEditing)}
 
