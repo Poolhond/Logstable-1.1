@@ -1441,6 +1441,46 @@ function computeSettlementFromLogsInState(sourceState, customerId, logIds){
   return { workMs, hours, lines };
 }
 
+function computeSettlementBaseTotals(settlement, sourceState = state){
+  const logIds = settlement?.logIds || [];
+  const linkedLogs = logIds
+    .map(id => sourceState.logs.find(log => log.id === id))
+    .filter(Boolean);
+
+  const baseDate = linkedLogs
+    .map(log => log.date)
+    .filter(Boolean)
+    .sort()
+    .at(-1) || "";
+
+  const totalWorkHours = linkedLogs.reduce((hours, log)=>{
+    return hours + (sumWorkMs(log) / 3600000);
+  }, 0);
+
+  const baseProducts = linkedLogs.reduce((totals, log)=>{
+    for (const item of (log.items || [])){
+      const productId = item.productId;
+      if (!productId) continue;
+      totals[productId] = round2((Number(totals[productId]) || 0) + (Number(item.qty) || 0));
+    }
+    return totals;
+  }, {});
+
+  return {
+    baseDate,
+    baseWorkHours: roundToNearestHalf(totalWorkHours),
+    baseProducts
+  };
+}
+
+function applySettlementBaseTotalsFromLinkedLogs(settlement, sourceState = state){
+  if (!settlement || settlement.status === "calculated") return false;
+  const baseTotals = computeSettlementBaseTotals(settlement, sourceState);
+  settlement.baseTotals = baseTotals;
+  settlement.date = baseTotals.baseDate;
+  return true;
+}
+
 function computeSettlementFromLogs(customerId, logIds){
   return computeSettlementFromLogsInState(state, customerId, logIds);
 }
@@ -1518,6 +1558,7 @@ const actions = {
     if (state.activeLogId === logId) state.activeLogId = null;
     for (const s of state.settlements){
       s.logIds = (s.logIds || []).filter(id => id !== logId);
+      applySettlementBaseTotalsFromLinkedLogs(s);
       syncSettlementDatesFromLogs(s);
       ensureSettlementInvoiceDefaults(s, state.settlements || []);
     }
@@ -1539,7 +1580,12 @@ const actions = {
   },
   linkLogToSettlement(logId, settlementId){
     for (const s of state.settlements){
+      if (s.status === "calculated" && (s.logIds || []).includes(logId)){
+        console.info("Log link/unlink geblokkeerd: afrekening is berekend.");
+        return commit();
+      }
       s.logIds = (s.logIds || []).filter(x => x !== logId);
+      applySettlementBaseTotalsFromLinkedLogs(s);
       syncSettlementDatesFromLogs(s);
       ensureSettlementInvoiceDefaults(s, state.settlements || []);
     }
@@ -1557,6 +1603,7 @@ const actions = {
         invoiceLocked: false
       };
       s.lines = computeSettlementFromLogs(s.customerId, s.logIds).lines;
+      applySettlementBaseTotalsFromLinkedLogs(s);
       syncSettlementDatesFromLogs(s);
       ensureSettlementInvoiceDefaults(s, state.settlements || []);
       state.settlements.unshift(s);
@@ -1565,9 +1612,14 @@ const actions = {
     }
     const s = state.settlements.find(x => x.id === settlementId);
     if (!s) return commit();
+    if (s.status === "calculated"){
+      console.info("Log link/unlink geblokkeerd: afrekening is berekend.");
+      return commit();
+    }
     s.logIds = Array.from(new Set([...(s.logIds || []), logId]));
     const prev = new Map((s.lines || []).map(li => [li.productId + "|" + li.description, li.bucket]));
     s.lines = computeSettlementFromLogs(s.customerId, s.logIds).lines.map(li => ({ ...li, bucket: prev.get(li.productId + "|" + li.description) || li.bucket }));
+    applySettlementBaseTotalsFromLinkedLogs(s);
     syncSettlementDatesFromLogs(s);
     ensureSettlementInvoiceDefaults(s, state.settlements || []);
     commit();
@@ -3775,6 +3827,9 @@ function renderSettlementSheet(id){
         <div class="summary-row"><span class="label">Totale werkuren</span><span class="num mono tabular">${formatDurationCompact(Math.floor(logbookTotals.totalWorkMs / 60000))}</span></div>
         <div class="summary-row"><span class="label">Totale groen eenheden</span><span class="num mono tabular">${esc(String(formatQuickQty(logbookTotals.totalGreenUnits)))}</span></div>
         ${logbookTotals.totalExtraProducts > 0 ? `<div class="summary-row"><span class="label">Totale extra producten</span><span class="num mono tabular">${esc(String(formatQuickQty(logbookTotals.totalExtraProducts)))}</span></div>` : ''}
+        <div class="small" style="color:var(--muted,#93a0b5)">
+          debug baseTotals — uren: ${esc(String(s.baseTotals?.baseWorkHours ?? 0))} · datum: ${esc(s.baseTotals?.baseDate || "—")}
+        </div>
       </div>
 
       <div class="section stack section-tight">
@@ -3907,6 +3962,7 @@ function renderSettlementSheet(id){
       actions.editSettlement(s.id, (draft)=>{
         draft.customerId = $('#sCustomer').value;
         draft.logIds = [];
+        applySettlementBaseTotalsFromLinkedLogs(draft, state);
       });
       renderSheet();
     });
@@ -3927,6 +3983,11 @@ function renderSettlementSheet(id){
     $('#sheetBody').querySelectorAll('[data-logpick]').forEach(cb=>{
       cb.addEventListener('change', ()=>{
         const logId = cb.getAttribute('data-logpick');
+        if (s.status === "calculated"){
+          console.info("Log link/unlink geblokkeerd: afrekening is berekend.");
+          cb.checked = (s.logIds || []).includes(logId);
+          return;
+        }
         const other = settlementForLog(logId);
         if (other && other.id !== s.id){
           alert('Deze log zit al in een andere afrekening. Open die afrekening of ontkoppel eerst.');
@@ -3939,6 +4000,7 @@ function renderSettlementSheet(id){
           const prev = new Map((draft.lines || []).map(li => [li.productId + "|" + li.description, li.bucket]));
           draft.lines = computeSettlementFromLogsInState(state, draft.customerId, draft.logIds || []).lines
             .map(li => ({ ...li, bucket: prev.get(li.productId + "|" + li.description) || li.bucket }));
+          applySettlementBaseTotalsFromLinkedLogs(draft, state);
           ensureDefaultSettlementLines(draft);
           syncSettlementAmounts(draft);
         });
