@@ -2497,8 +2497,13 @@ function _attachSettingsHandlers(){
   };
 
   $("#fillDemoBtn").onclick = ()=>{
-    const demoMonths = isStandalone ? 3 : 24;
-    const demoLabel = isStandalone ? "3 maanden" : "24 maanden (2 jaar)";
+    const selectedDemoMonths = Number($("#demoMonthsSelect")?.value || (isStandalone ? 3 : 24));
+    const demoMonths = Number.isFinite(selectedDemoMonths) && selectedDemoMonths > 0 ? selectedDemoMonths : (isStandalone ? 3 : 24);
+    const demoLabel = demoMonths === 3
+      ? "3 maanden"
+      : demoMonths === 24
+        ? "24 maanden (2 jaar)"
+        : `${demoMonths} maanden`;
     if (!confirmAction(`Demo data toevoegen voor ${demoLabel}?`)) return;
     const changed = seedDemoPeriod(state, { months: demoMonths, force: false, seed: "demo-v2" });
     if (changed){
@@ -2837,6 +2842,7 @@ function renderProductsSheet(){
 
 function renderSettingsSheet(){
   const body = $("#sheetBody");
+  const defaultDemoMonths = isStandalone ? 3 : 24;
   const demoCounts = {
     customers: state.customers.filter(c => c.demo).length,
     logs: state.logs.filter(l => l.demo).length,
@@ -2863,7 +2869,13 @@ function renderSettingsSheet(){
       <div class="card stack">
         <div class="item-title">Demo data</div>
         <div class="meta-text">Demo records: klanten ${demoCounts.customers} · logs ${demoCounts.logs} · afrekeningen ${demoCounts.settlements}</div>
-        <button class="btn" id="fillDemoBtn">${isStandalone ? "Genereer demo data (3 maanden)" : "Vul demo data (2 jaar)"}</button>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <label for="demoMonthsSelect">Periode demo data</label>
+          <select id="demoMonthsSelect">
+            ${[3, 6, 12, 24].map((months)=> `<option value="${months}" ${months === defaultDemoMonths ? "selected" : ""}>Laatste ${months === 24 ? "24 maanden (2 jaar)" : `${months} maanden`}</option>`).join("")}
+          </select>
+        </div>
+        <button class="btn" id="fillDemoBtn">Genereer demo data</button>
         <button class="btn danger" id="clearDemoBtn">Wis demo data</button>
       </div>
 
