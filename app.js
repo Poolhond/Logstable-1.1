@@ -396,6 +396,8 @@ function loadState(){
     if (!("invoiceLocked" in s)) s.invoiceLocked = Boolean(s.isCalculated);
     syncSettlementDatesFromLogs(s, st);
     ensureSettlementInvoiceDefaults(s, st.settlements || []);
+    syncSettlementWorkAllocation(s);
+    applySettlementWorkAllocationToLines(s);
     syncSettlementAmounts(s);
     if (!("demo" in s)) s.demo = false;
   }
@@ -1064,8 +1066,57 @@ function formatQuickQty(value){
   const rounded = round2(Number(value) || 0);
   return Number.isInteger(rounded) ? String(rounded) : String(rounded);
 }
+function clampWorkCashQty(cashQty, baseWorkHours){
+  const base = Math.max(0, round2(Number(baseWorkHours) || 0));
+  const cash = round2(Number(cashQty) || 0);
+  return Math.max(0, Math.min(base, cash));
+}
+function syncSettlementWorkAllocation(settlement){
+  if (!settlement) return;
+  const base = Math.max(0, round2(Number(settlement.baseTotals?.baseWorkHours) || 0));
+  const hasInvoice = Number.isFinite(Number(settlement.workInvoiceQty));
+  const hasCash = Number.isFinite(Number(settlement.workCashQty));
+
+  if (!hasInvoice && !hasCash){
+    settlement.workInvoiceQty = base;
+    settlement.workCashQty = 0;
+  } else {
+    const cash = clampWorkCashQty(settlement.workCashQty, base);
+    settlement.workCashQty = cash;
+    settlement.workInvoiceQty = round2(base - cash);
+  }
+}
+function applySettlementWorkAllocationToLines(settlement){
+  if (!settlement) return;
+  syncSettlementWorkAllocation(settlement);
+  settlement.lines = settlement.lines || [];
+  ensureDefaultSettlementLines(settlement);
+  const workInvoiceLine = findSettlementQuickLine(settlement.lines, "invoice", "work");
+  const workCashLine = findSettlementQuickLine(settlement.lines, "cash", "work");
+  if (workInvoiceLine) workInvoiceLine.qty = round2(Number(settlement.workInvoiceQty) || 0);
+  if (workCashLine) workCashLine.qty = round2(Number(settlement.workCashQty) || 0);
+}
+function shiftWork(settlement, direction, step){
+  if (!settlement || settlement.status === "calculated") return;
+  const base = Math.max(0, round2(Number(settlement.baseTotals?.baseWorkHours) || 0));
+  const currentCash = clampWorkCashQty(settlement.workCashQty, base);
+  let nextCash = currentCash;
+  const delta = Number(step) || 0;
+  if (direction === "toCash") nextCash += delta;
+  if (direction === "toInvoice") nextCash -= delta;
+  nextCash = clampWorkCashQty(nextCash, base);
+  settlement.workCashQty = nextCash;
+  settlement.workInvoiceQty = round2(base - nextCash);
+  applySettlementWorkAllocationToLines(settlement);
+}
 function adjustSettlementQuickQty(settlementId, bucket, kind, delta){
   actions.editSettlement(settlementId, (draft)=>{
+    if (kind === "work"){
+      const toCash = (bucket === "cash" && delta > 0) || (bucket === "invoice" && delta < 0);
+      shiftWork(draft, toCash ? "toCash" : "toInvoice", Math.abs(Number(delta) || 0));
+      syncSettlementAmounts(draft);
+      return;
+    }
     draft.lines = draft.lines || [];
     ensureDefaultSettlementLines(draft);
     const line = findSettlementQuickLine(draft.lines, bucket, kind);
@@ -1478,6 +1529,8 @@ function applySettlementBaseTotalsFromLinkedLogs(settlement, sourceState = state
   const baseTotals = computeSettlementBaseTotals(settlement, sourceState);
   settlement.baseTotals = baseTotals;
   settlement.date = baseTotals.baseDate;
+  syncSettlementWorkAllocation(settlement);
+  applySettlementWorkAllocationToLines(settlement);
   return true;
 }
 
@@ -1559,6 +1612,7 @@ const actions = {
     for (const s of state.settlements){
       s.logIds = (s.logIds || []).filter(id => id !== logId);
       applySettlementBaseTotalsFromLinkedLogs(s);
+      applySettlementWorkAllocationToLines(s);
       syncSettlementDatesFromLogs(s);
       ensureSettlementInvoiceDefaults(s, state.settlements || []);
     }
@@ -1572,7 +1626,9 @@ const actions = {
       invoiceAmount: 0, cashAmount: 0, invoicePaid: false, cashPaid: false,
       invoiceNumber: null,
       invoiceDate,
-      invoiceLocked: false
+      invoiceLocked: false,
+      workInvoiceQty: 0,
+      workCashQty: 0
     };
     state.settlements.unshift(s);
     commit();
@@ -1586,6 +1642,7 @@ const actions = {
       }
       s.logIds = (s.logIds || []).filter(x => x !== logId);
       applySettlementBaseTotalsFromLinkedLogs(s);
+      applySettlementWorkAllocationToLines(s);
       syncSettlementDatesFromLogs(s);
       ensureSettlementInvoiceDefaults(s, state.settlements || []);
     }
@@ -1600,10 +1657,13 @@ const actions = {
         invoiceAmount: 0, cashAmount: 0, invoicePaid: false, cashPaid: false,
         invoiceNumber: null,
         invoiceDate,
-        invoiceLocked: false
+        invoiceLocked: false,
+        workInvoiceQty: 0,
+        workCashQty: 0
       };
       s.lines = computeSettlementFromLogs(s.customerId, s.logIds).lines;
       applySettlementBaseTotalsFromLinkedLogs(s);
+      applySettlementWorkAllocationToLines(s);
       syncSettlementDatesFromLogs(s);
       ensureSettlementInvoiceDefaults(s, state.settlements || []);
       state.settlements.unshift(s);
@@ -1620,6 +1680,7 @@ const actions = {
     const prev = new Map((s.lines || []).map(li => [li.productId + "|" + li.description, li.bucket]));
     s.lines = computeSettlementFromLogs(s.customerId, s.logIds).lines.map(li => ({ ...li, bucket: prev.get(li.productId + "|" + li.description) || li.bucket }));
     applySettlementBaseTotalsFromLinkedLogs(s);
+    applySettlementWorkAllocationToLines(s);
     syncSettlementDatesFromLogs(s);
     ensureSettlementInvoiceDefaults(s, state.settlements || []);
     commit();
@@ -1662,6 +1723,7 @@ const actions = {
     const settlement = state.settlements.find(x => x.id === settlementId);
     if (!settlement || typeof updater !== "function") return;
     updater(settlement);
+    applySettlementWorkAllocationToLines(settlement);
     syncSettlementDatesFromLogs(settlement);
     ensureSettlementInvoiceDefaults(settlement, state.settlements || []);
     commit();
@@ -3660,6 +3722,7 @@ function calculateSettlement(settlement){
 
   settlement.lines = mergedLines;
   ensureDefaultSettlementLines(settlement);
+  applySettlementWorkAllocationToLines(settlement);
   settlement.markedCalculated = true;
   settlement.isCalculated = true;
   settlement.calculatedAt = now();
@@ -3739,7 +3802,9 @@ function renderSettlementSheet(id){
   if (!("invoiceLocked" in s)) s.invoiceLocked = Boolean(s.isCalculated);
   syncSettlementDatesFromLogs(s);
   ensureSettlementInvoiceDefaults(s, state.settlements || []);
+  syncSettlementWorkAllocation(s);
   ensureDefaultSettlementLines(s);
+  applySettlementWorkAllocationToLines(s);
   syncSettlementStatus(s);
 
   const isEdit = isSettlementEditing(s.id);
@@ -4002,6 +4067,7 @@ function renderSettlementSheet(id){
             .map(li => ({ ...li, bucket: prev.get(li.productId + "|" + li.description) || li.bucket }));
           applySettlementBaseTotalsFromLinkedLogs(draft, state);
           ensureDefaultSettlementLines(draft);
+          applySettlementWorkAllocationToLines(draft);
           syncSettlementAmounts(draft);
         });
         renderSheet();
