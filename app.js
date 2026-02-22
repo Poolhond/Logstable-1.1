@@ -395,6 +395,7 @@ function loadState(){
     if (!("cashAmount" in s)) s.cashAmount = 0;
     if (!("invoiceLocked" in s)) s.invoiceLocked = Boolean(s.isCalculated);
     syncSettlementDatesFromLogs(s, st);
+    ensureSettlementAllocations(s, { sourceState: st });
     ensureSettlementInvoiceDefaults(s, st.settlements || []);
     syncSettlementAmounts(s);
     if (!("demo" in s)) s.demo = false;
@@ -1064,28 +1065,20 @@ function formatQuickQty(value){
   const rounded = round2(Number(value) || 0);
   return Number.isInteger(rounded) ? String(rounded) : String(rounded);
 }
-function adjustSettlementQuickQty(settlementId, bucket, kind, delta){
-  actions.editSettlement(settlementId, (draft)=>{
-    draft.lines = draft.lines || [];
-    ensureDefaultSettlementLines(draft);
-    const line = findSettlementQuickLine(draft.lines, bucket, kind);
-    if (!line) return;
-    const oppositeBucket = bucket === "cash" ? "invoice" : "cash";
-    const oppositeLine = findSettlementQuickLine(draft.lines, oppositeBucket, kind);
+function shiftAllocation(settlement, key, direction, step){
+  if (!settlement || isSettlementCalculated(settlement)) return;
+  const allocation = settlement.allocations?.[key];
+  if (!allocation) return;
+  const qtyStep = Math.max(0, Number(step) || 0);
+  if (qtyStep === 0) return;
 
-    const computed = computeSettlementFromLogsInState(state, draft.customerId, draft.logIds || []);
-    const isKind = (item)=> kind === "work" ? isWorkProduct(item) : isGreenProduct(item);
-    const computedTotalQty = round2((computed.lines || [])
-      .filter(isKind)
-      .reduce((total, item)=> total + (Number(item.qty) || 0), 0));
-    const fallbackCurrentTotal = round2((Number(line.qty) || 0) + (Number(oppositeLine?.qty) || 0));
-    const totalQty = computedTotalQty > 0 ? computedTotalQty : fallbackCurrentTotal;
-
-    const rawNextQty = round2((Number(line.qty) || 0) + Number(delta || 0));
-    const nextQty = Math.max(0, Math.min(totalQty, rawNextQty));
-    line.qty = nextQty;
-    if (oppositeLine) oppositeLine.qty = round2(Math.max(0, totalQty - nextQty));
-  });
+  const baseQty = Math.max(0, Number(allocation.baseQty) || 0);
+  const currentCash = Math.max(0, Number(allocation.cashQty) || 0);
+  const delta = direction === "toCash" ? qtyStep : direction === "toInvoice" ? -qtyStep : 0;
+  const nextCash = Math.max(0, Math.min(baseQty, round2(currentCash + delta)));
+  allocation.baseQty = baseQty;
+  allocation.cashQty = nextCash;
+  allocation.invoiceQty = round2(Math.max(0, baseQty - nextCash));
 }
 function countGreenItems(log){
   return round2((log.items || []).reduce((total, item)=>{
@@ -1124,15 +1117,81 @@ function getLogVisualState(log){
   if (state === "linked") return { state: "linked", color: "#ffcc00" };
   return { state: "free", color: "#93a0b5" };
 }
+function getSettlementBaseFromLogs(settlement, sourceState = state){
+  const logIds = settlement?.logIds || [];
+  const logs = logIds.map(id => sourceState.logs.find(l => l.id === id)).filter(Boolean);
+  const baseDate = logs.map(log => log.date).filter(Boolean).sort().at(-1) || (settlement?.date || todayISO());
+  const totalWorkMs = logs.reduce((total, log)=> total + sumWorkMs(log), 0);
+  const baseWorkHours = roundToNearestHalf(totalWorkMs / 3600000);
+  const productMap = new Map();
+  for (const log of logs){
+    for (const item of (log.items || [])){
+      const key = item.productId || "free";
+      productMap.set(key, round2((productMap.get(key) || 0) + (Number(item.qty) || 0)));
+    }
+  }
+  const baseProducts = Object.fromEntries(productMap.entries());
+  return { baseDate, baseWorkHours, baseProducts };
+}
+
+function collectLegacyCashQty(settlement, productId, kind){
+  const lines = settlement?.lines || [];
+  return round2(lines
+    .filter(line => (line.bucket || "invoice") === "cash")
+    .filter(line => {
+      if (productId && line.productId) return line.productId === productId;
+      const label = String(line.name || line.description || pname(line.productId) || "").trim().toLowerCase();
+      return kind === "work" ? label === "werk" : kind === "green" ? label === "groen" : false;
+    })
+    .reduce((sum, line)=> sum + (Number(line.qty) || 0), 0));
+}
+
+function ensureSettlementAllocations(settlement, { sourceState = state } = {}){
+  if (!settlement) return;
+  const { baseDate, baseWorkHours, baseProducts } = getSettlementBaseFromLogs(settlement, sourceState);
+  const previous = settlement.allocations || {};
+  const next = {};
+  const workProduct = preferredWorkProduct();
+  const oldWork = previous.work || {};
+  const legacyWorkCash = collectLegacyCashQty(settlement, workProduct?.id, "work");
+  const workCash = Math.max(0, Math.min(baseWorkHours, Number.isFinite(Number(oldWork.cashQty)) ? Number(oldWork.cashQty) : legacyWorkCash));
+  next.work = {
+    baseQty: baseWorkHours,
+    cashQty: round2(workCash),
+    invoiceQty: round2(Math.max(0, baseWorkHours - workCash)),
+    unitPrice: Number(oldWork.unitPrice ?? workProduct?.unitPrice ?? sourceState.settings.hourlyRate ?? 0)
+  };
+
+  for (const [productId, qty] of Object.entries(baseProducts)){
+    const key = `p:${productId}`;
+    const product = sourceState.products.find(p => p.id === productId);
+    const prev = previous[key] || {};
+    const legacyCash = collectLegacyCashQty(settlement, productId, null);
+    const cashQty = Math.max(0, Math.min(qty, Number.isFinite(Number(prev.cashQty)) ? Number(prev.cashQty) : legacyCash));
+    next[key] = {
+      baseQty: round2(qty),
+      cashQty: round2(cashQty),
+      invoiceQty: round2(Math.max(0, qty - cashQty)),
+      unitPrice: Number(prev.unitPrice ?? product?.unitPrice ?? 0)
+    };
+  }
+
+  settlement.allocations = next;
+  settlement.date = baseDate;
+}
+
 function getSettlementTotals(settlement){
-  const invoiceTotals = bucketTotals(settlement.lines, "invoice");
-  const cashTotals = bucketTotals(settlement.lines, "cash");
+  const vatRate = Number(state.settings?.vatRate ?? 0);
+  const allocations = Object.values(settlement?.allocations || {});
+  const invoiceExcl = round2(allocations.reduce((sum, item)=> sum + (Number(item.invoiceQty) || 0) * (Number(item.unitPrice) || 0), 0));
+  const cashExcl = round2(allocations.reduce((sum, item)=> sum + (Number(item.cashQty) || 0) * (Number(item.unitPrice) || 0), 0));
+  const invoiceTotal = round2(invoiceExcl * (1 + vatRate));
   return {
-    invoiceSubtotal: invoiceTotals.subtotal,
-    invoiceVat: invoiceTotals.vat,
-    invoiceTotal: invoiceTotals.total,
-    cashSubtotal: cashTotals.subtotal,
-    cashTotal: cashTotals.subtotal
+    invoiceSubtotal: invoiceExcl,
+    invoiceVat: round2(invoiceTotal - invoiceExcl),
+    invoiceTotal,
+    cashSubtotal: cashExcl,
+    cashTotal: cashExcl
   };
 }
 
@@ -1166,18 +1225,15 @@ function latestLinkedLogDate(settlement, sourceState = state){
 function syncSettlementDatesFromLogs(settlement, sourceState = state){
   if (!settlement) return;
   const fallbackDate = todayISO();
-  const maxLogDate = latestLinkedLogDate(settlement, sourceState);
-  if (maxLogDate){
-    settlement.date = maxLogDate;
-    if (!settlement.invoiceLocked) settlement.invoiceDate = maxLogDate;
+  if (!isSettlementCalculated(settlement)){
+    const maxLogDate = latestLinkedLogDate(settlement, sourceState);
+    if (maxLogDate) settlement.date = maxLogDate;
+    else if (!settlement.date) settlement.date = fallbackDate;
   } else if (!settlement.date){
     settlement.date = fallbackDate;
   }
 
-  if (!settlement.invoiceDate){
-    settlement.invoiceDate = settlement.date || fallbackDate;
-  }
-  settlement.invoiceDate = settlement.date || fallbackDate;
+  if (!settlement.invoiceDate) settlement.invoiceDate = settlement.date || fallbackDate;
 }
 
 function ensureSettlementInvoiceDefaults(settlement, settlements = state.settlements || []){
@@ -1367,13 +1423,11 @@ function bucketTotals(lines, bucket){
 }
 
 function settlementPaymentState(settlement){
-  const invoiceTotals = bucketTotals(settlement.lines, "invoice");
-  const cashTotals = bucketTotals(settlement.lines, "cash");
   const { invoiceTotal, cashTotal } = getSettlementTotals(settlement);
   const hasInvoice = settlementHasInvoiceComponent(settlement, { invoiceTotal, cashTotal });
   const hasCash = cashTotal > 0;
   const isPaid = getSettlementVisualState(settlement).state === "paid";
-  return { invoiceTotals, cashTotals, invoiceTotal, cashTotal, hasInvoice, hasCash, isPaid };
+  return { invoiceTotal, cashTotal, hasInvoice, hasCash, isPaid };
 }
 
 function syncSettlementStatus(settlement){
@@ -1517,7 +1571,10 @@ const actions = {
     state.logs = state.logs.filter(x => x.id !== logId);
     if (state.activeLogId === logId) state.activeLogId = null;
     for (const s of state.settlements){
+      if (isSettlementCalculated(s)) continue;
+      const hadLog = (s.logIds || []).includes(logId);
       s.logIds = (s.logIds || []).filter(id => id !== logId);
+      if (hadLog) ensureSettlementAllocations(s);
       syncSettlementDatesFromLogs(s);
       ensureSettlementInvoiceDefaults(s, state.settlements || []);
     }
@@ -1526,7 +1583,7 @@ const actions = {
   createSettlement(customerId = state.customers[0]?.id || ""){
     const invoiceDate = todayISO();
     const s = {
-      id: uid(), customerId, date: invoiceDate, createdAt: now(), logIds: [], lines: [],
+      id: uid(), customerId, date: invoiceDate, createdAt: now(), logIds: [], lines: [], allocations: {},
       status: "draft", markedCalculated: false, isCalculated: false, calculatedAt: null,
       invoiceAmount: 0, cashAmount: 0, invoicePaid: false, cashPaid: false,
       invoiceNumber: null,
@@ -1539,7 +1596,10 @@ const actions = {
   },
   linkLogToSettlement(logId, settlementId){
     for (const s of state.settlements){
+      if (isSettlementCalculated(s)) continue;
+      const hadLog = (s.logIds || []).includes(logId);
       s.logIds = (s.logIds || []).filter(x => x !== logId);
+      if (hadLog) ensureSettlementAllocations(s);
       syncSettlementDatesFromLogs(s);
       ensureSettlementInvoiceDefaults(s, state.settlements || []);
     }
@@ -1549,14 +1609,14 @@ const actions = {
       if (!log) return;
       const invoiceDate = log.date || todayISO();
       const s = {
-        id: uid(), customerId: log.customerId, date: invoiceDate, createdAt: now(), logIds: [logId], lines: [],
+        id: uid(), customerId: log.customerId, date: invoiceDate, createdAt: now(), logIds: [logId], lines: [], allocations: {},
         status: "draft", markedCalculated: false, isCalculated: false, calculatedAt: null,
         invoiceAmount: 0, cashAmount: 0, invoicePaid: false, cashPaid: false,
         invoiceNumber: null,
         invoiceDate,
         invoiceLocked: false
       };
-      s.lines = computeSettlementFromLogs(s.customerId, s.logIds).lines;
+      ensureSettlementAllocations(s);
       syncSettlementDatesFromLogs(s);
       ensureSettlementInvoiceDefaults(s, state.settlements || []);
       state.settlements.unshift(s);
@@ -1565,9 +1625,9 @@ const actions = {
     }
     const s = state.settlements.find(x => x.id === settlementId);
     if (!s) return commit();
+    if (isSettlementCalculated(s)) return commit();
     s.logIds = Array.from(new Set([...(s.logIds || []), logId]));
-    const prev = new Map((s.lines || []).map(li => [li.productId + "|" + li.description, li.bucket]));
-    s.lines = computeSettlementFromLogs(s.customerId, s.logIds).lines.map(li => ({ ...li, bucket: prev.get(li.productId + "|" + li.description) || li.bucket }));
+    ensureSettlementAllocations(s);
     syncSettlementDatesFromLogs(s);
     ensureSettlementInvoiceDefaults(s, state.settlements || []);
     commit();
@@ -1610,6 +1670,7 @@ const actions = {
     const settlement = state.settlements.find(x => x.id === settlementId);
     if (!settlement || typeof updater !== "function") return;
     updater(settlement);
+    if (!isSettlementCalculated(settlement)) ensureSettlementAllocations(settlement);
     syncSettlementDatesFromLogs(settlement);
     ensureSettlementInvoiceDefaults(settlement, state.settlements || []);
     commit();
@@ -3526,7 +3587,7 @@ function syncSettlementAmounts(settlement){
 function renderSettlementStatusIcons(settlement){
   const isCalculated = isSettlementCalculated(settlement);
   const isEdit = isSettlementEditing(settlement?.id);
-  const showCalculateIcon = settlement?.status !== "calculated" || isEdit === true;
+  const showCalculateIcon = !isSettlementCalculated(settlement);
   const calcStateClass = isCalculated ? "is-open" : "";
   const calcStateStyle = isCalculated
     ? ""
@@ -3566,54 +3627,24 @@ function renderSettlementStatusIcons(settlement){
 }
 
 function calculateSettlement(settlement){
-  if (!settlement) return;
+  if (!settlement || isSettlementCalculated(settlement)) return;
   syncSettlementDatesFromLogs(settlement);
-  ensureSettlementInvoiceDefaults(settlement, state.settlements || []);
-  const computed = computeSettlementFromLogs(settlement.customerId, settlement.logIds || []);
-  const sig = (line)=>`${line?.productId || ""}||${String(line?.description || line?.name || "").trim().toLowerCase()}||${line?.unit || ""}`;
-  const existingLines = settlement.lines || [];
-  const computedLines = computed.lines || [];
-  const computedBucketSigSet = new Set(computedLines.map(li => `${li.bucket || "invoice"}||${sig(li)}`));
-  const existingByBucketSig = new Map();
-  for (const line of existingLines){
-    const bucket = line.bucket || "invoice";
-    const key = `${bucket}||${sig(line)}`;
-    if (!existingByBucketSig.has(key)) existingByBucketSig.set(key, line);
-  }
-
-  const mergedLines = existingLines.filter(line => {
-    const bucket = line.bucket || "invoice";
-    const key = `${bucket}||${sig(line)}`;
-    return line.manual === true || !computedBucketSigSet.has(key);
-  });
-
-  for (const li of computedLines){
-    const bucket = li.bucket || "invoice";
-    const key = `${bucket}||${sig(li)}`;
-    const existing = existingByBucketSig.get(key);
-    if (existing){
-      mergedLines.push({
-        ...existing,
-        qty: li.qty,
-        unitPrice: li.unitPrice,
-        vatRate: li.vatRate,
-        description: li.description,
-        unit: li.unit,
-        productId: li.productId
-      });
-      continue;
-    }
-    mergedLines.push({ ...li, id: li.id || uid(), bucket });
-  }
-
-  settlement.lines = mergedLines;
-  ensureDefaultSettlementLines(settlement);
+  ensureSettlementAllocations(settlement);
   settlement.markedCalculated = true;
   settlement.isCalculated = true;
+  settlement.status = "calculated";
   settlement.calculatedAt = now();
-  lockInvoice(settlement);
+
+  const totals = getSettlementTotals(settlement);
+  settlement.invoiceAmount = totals.invoiceTotal;
+  settlement.cashAmount = totals.cashTotal;
+  if (totals.invoiceTotal > 0){
+    settlement.invoiceNumber = settlement.invoiceNumber || getNextInvoiceNumber(state.settlements || []);
+    lockInvoice(settlement);
+  } else {
+    settlement.invoiceNumber = null;
+  }
   syncSettlementStatus(settlement);
-  syncSettlementAmounts(settlement);
 }
 
 function uncalculateSettlement(settlement){
@@ -3686,8 +3717,8 @@ function renderSettlementSheet(id){
   if (!("calculatedAt" in s)) s.calculatedAt = s.isCalculated ? (s.createdAt || now()) : null;
   if (!("invoiceLocked" in s)) s.invoiceLocked = Boolean(s.isCalculated);
   syncSettlementDatesFromLogs(s);
+  if (!isSettlementCalculated(s)) ensureSettlementAllocations(s);
   ensureSettlementInvoiceDefaults(s, state.settlements || []);
-  ensureDefaultSettlementLines(s);
   syncSettlementStatus(s);
 
   const isEdit = isSettlementEditing(s.id);
@@ -3706,47 +3737,38 @@ function renderSettlementSheet(id){
   const pay = settlementPaymentState(s);
   const visual = getSettlementVisualState(s);
   const showInvoiceSection = pay.hasInvoice;
-  const allLines = s.lines || [];
-  const workInvoiceLine = findSettlementQuickLine(allLines, 'invoice', 'work');
-  const workCashLine = findSettlementQuickLine(allLines, 'cash', 'work');
-  const greenInvoiceLine = findSettlementQuickLine(allLines, 'invoice', 'green');
-  const greenCashLine = findSettlementQuickLine(allLines, 'cash', 'green');
+  const allocations = s.allocations || {};
+  const workAllocation = allocations.work || { invoiceQty: 0, cashQty: 0 };
+  const greenProduct = state.products.find(product => isGreenProduct(product));
+  const greenKey = greenProduct ? `p:${greenProduct.id}` : null;
+  const greenAllocation = greenKey ? (allocations[greenKey] || { invoiceQty: 0, cashQty: 0 }) : { invoiceQty: 0, cashQty: 0 };
   const logbookTotals = settlementLogbookTotals(s);
 
-  const lineLabel = (line)=> String((getProduct(line.productId)?.name) || line.name || line.description || '').trim().toLowerCase();
-  const isCoreLine = (line)=> {
-    const label = lineLabel(line);
-    return isWorkProduct(line) || isGreenProduct(line) || label === 'werk' || label === 'groen';
-  };
-  const extraByKey = new Map();
-  for (const line of allLines){
-    if (isCoreLine(line)) continue;
-    const bucket = (line.bucket || 'invoice') === 'cash' ? 'cash' : 'invoice';
-    const keyBase = line.productId ? `p:${line.productId}` : `n:${lineLabel(line) || line.id}`;
-    if (!extraByKey.has(keyBase)){
-      extraByKey.set(keyBase, {
-        label: (getProduct(line.productId)?.name) || line.name || line.description || 'Product',
-        invoiceQty: 0,
-        cashQty: 0
-      });
-    }
-    const item = extraByKey.get(keyBase);
-    item[bucket === 'cash' ? 'cashQty' : 'invoiceQty'] = round2(item[bucket === 'cash' ? 'cashQty' : 'invoiceQty'] + (Number(line.qty) || 0));
-  }
-  const extraProducts = Array.from(extraByKey.values()).filter(item => item.invoiceQty > 0 || item.cashQty > 0);
+  const extraProducts = Object.entries(allocations)
+    .filter(([key]) => key !== 'work' && key !== greenKey)
+    .map(([key, allocation])=> ({
+      label: key.startsWith('p:') ? (getProduct(key.slice(2))?.name || 'Product') : 'Product',
+      invoiceQty: Number(allocation.invoiceQty) || 0,
+      cashQty: Number(allocation.cashQty) || 0
+    }))
+    .filter(item => item.invoiceQty > 0 || item.cashQty > 0);
 
-  const renderAllocationControls = ({ bucket, kind, qty })=>`
+  const renderAllocationControls = ({ bucket, key, qty })=>{
+    const canShift = isEdit && !isSettlementCalculated(s);
+    const leftDirection = bucket === 'invoice' ? 'toCash' : 'toInvoice';
+    const rightDirection = bucket === 'invoice' ? 'toInvoice' : 'toCash';
+    return `
     <div class="allocation-controls" data-bucket="${bucket}">
-      ${isEdit ? `<button class="iconbtn iconbtn-sm" type="button" data-settle-quick-step="${bucket}|${kind}|-1" aria-label="${kind} min">−</button>` : `<span class="allocation-btn-placeholder"></span>`}
+      ${canShift ? `<button class="iconbtn iconbtn-sm" type="button" data-settle-shift="${key}|${leftDirection}" aria-label="verplaats">−</button>` : `<span class="allocation-btn-placeholder"></span>`}
       <div class="allocation-value mono tabular">${esc(String(formatQuickQty(qty)))}</div>
-      ${isEdit ? `<button class="iconbtn iconbtn-sm" type="button" data-settle-quick-step="${bucket}|${kind}|1" aria-label="${kind} plus">+</button>` : `<span class="allocation-btn-placeholder"></span>`}
-    </div>
-  `;
+      ${canShift ? `<button class="iconbtn iconbtn-sm" type="button" data-settle-shift="${key}|${rightDirection}" aria-label="verplaats">+</button>` : `<span class="allocation-btn-placeholder"></span>`}
+    </div>`;
+  };
 
   const renderAllocationMatrixRow = ({ kind, icon, invoiceQty, cashQty })=>`
     <div class="allocation-matrix-icon" aria-hidden="true">${icon}</div>
-    ${renderAllocationControls({ bucket: 'invoice', kind, qty: invoiceQty })}
-    ${renderAllocationControls({ bucket: 'cash', kind, qty: cashQty })}
+    ${renderAllocationControls({ bucket: 'invoice', key: kind === 'work' ? 'work' : greenKey, qty: invoiceQty })}
+    ${renderAllocationControls({ bucket: 'cash', key: kind === 'work' ? 'work' : greenKey, qty: cashQty })}
   `;
 
   const renderAllocationStaticRow = ({ label, invoiceValue, cashValue, rowClass = '' })=>`
@@ -3785,14 +3807,14 @@ function renderSettlementSheet(id){
           ${renderAllocationMatrixRow({
             kind: 'work',
             icon: workIcon,
-            invoiceQty: workInvoiceLine?.qty || 0,
-            cashQty: workCashLine?.qty || 0
+            invoiceQty: workAllocation.invoiceQty || 0,
+            cashQty: workAllocation.cashQty || 0
           })}
           ${renderAllocationMatrixRow({
             kind: 'green',
             icon: greenIcon,
-            invoiceQty: greenInvoiceLine?.qty || 0,
-            cashQty: greenCashLine?.qty || 0
+            invoiceQty: greenAllocation.invoiceQty || 0,
+            cashQty: greenAllocation.cashQty || 0
           })}
           ${extraProducts.map(item => renderAllocationStaticRow({
             label: item.label,
@@ -3809,7 +3831,7 @@ function renderSettlementSheet(id){
       </div>
 
       <div class="section stack section-tight">
-        <div class="section-title-row"><h2>Gekoppelde logs</h2>${isEdit ? `<button class="btn" id="btnRecalc">Herbereken uit logs</button>` : ""}</div>
+        <div class="section-title-row"><h2>Gekoppelde logs</h2></div>
         <div class="flat-list" id="sLogs">
           ${availableLogs.slice(0,30).map(l=>{
             const checked = (s.logIds||[]).includes(l.id);
@@ -3821,7 +3843,7 @@ function renderSettlementSheet(id){
                 <span class="log-col-products">${countExtraProducts(l)}</span>
               </div>`;
             if (isEdit){
-              return `<label class="flat-row"><div class="row space"><div class="item-main">${rowMeta}</div><div class="item-right"><input type="checkbox" data-logpick="${l.id}" ${checked ? "checked" : ""}/></div></div></label>`;
+              return `<label class="flat-row"><div class="row space"><div class="item-main">${rowMeta}</div><div class="item-right"><input type="checkbox" data-logpick="${l.id}" ${checked ? "checked" : ""} ${isSettlementCalculated(s) ? "disabled" : ""}/></div></div></label>`;
             }
             if (!checked) return "";
             return `<button class="flat-row item-row-button" type="button" role="button" data-open-linked-log="${l.id}"><div class="item-main">${rowMeta}</div></button>`;
@@ -3860,21 +3882,8 @@ function renderSettlementSheet(id){
   `);
 
   $('#toggleCalculated')?.addEventListener('click', ()=>{
-    const calculated = isSettlementCalculated(s);
-    if (isEdit){
-      if (calculated){
-        actions.editSettlement(s.id, (draft)=>{
-          uncalculateSettlement(draft);
-        });
-      } else {
-        actions.calculateSettlement(s.id);
-      }
-      renderSheet();
-      return;
-    }
-    if (!calculated){
-      actions.calculateSettlement(s.id);
-    }
+    if (isSettlementCalculated(s)) return;
+    actions.calculateSettlement(s.id);
     renderSheet();
   });
   $('#toggleInvoicePaid')?.addEventListener('click', ()=>{
@@ -3934,36 +3943,29 @@ function renderSettlementSheet(id){
           return;
         }
         actions.editSettlement(s.id, (draft)=>{
+          if (isSettlementCalculated(draft)) return;
           if (cb.checked) draft.logIds = Array.from(new Set([...(draft.logIds||[]), logId]));
           else draft.logIds = (draft.logIds||[]).filter(x => x !== logId);
-          const prev = new Map((draft.lines || []).map(li => [li.productId + "|" + li.description, li.bucket]));
-          draft.lines = computeSettlementFromLogsInState(state, draft.customerId, draft.logIds || []).lines
-            .map(li => ({ ...li, bucket: prev.get(li.productId + "|" + li.description) || li.bucket }));
-          ensureDefaultSettlementLines(draft);
+          ensureSettlementAllocations(draft);
           syncSettlementAmounts(draft);
         });
         renderSheet();
       });
     });
 
-    $('#btnRecalc')?.addEventListener('click', ()=>{
-      actions.calculateSettlement(s.id);
-      renderSheet();
-    });
 
-    $('#sheetBody').querySelectorAll('[data-settle-quick-step]').forEach(btn=>{
-      const raw = String(btn.getAttribute('data-settle-quick-step') || '');
-      const [bucket, kind, stepRaw] = raw.split('|');
-      const step = Number(stepRaw || '0');
-      if (!bucket || !kind || !Number.isFinite(step) || step === 0) return;
+    $('#sheetBody').querySelectorAll('[data-settle-shift]').forEach(btn=>{
+      const raw = String(btn.getAttribute('data-settle-shift') || '');
+      const [key, direction] = raw.split('|');
+      if (!key || !direction) return;
       bindStepButton(
         btn,
         ()=>{
-          adjustSettlementQuickQty(s.id, bucket, kind, step);
+          actions.editSettlement(s.id, (draft)=> shiftAllocation(draft, key, direction, 1));
           renderSheetKeepScroll();
         },
         ()=>{
-          adjustSettlementQuickQty(s.id, bucket, kind, step > 0 ? 0.5 : -0.5);
+          actions.editSettlement(s.id, (draft)=> shiftAllocation(draft, key, direction, 0.5));
           renderSheetKeepScroll();
         }
       );
