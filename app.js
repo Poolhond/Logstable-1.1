@@ -16,6 +16,65 @@ const START_TOP_LIMIT = 8;
 const $ = (s) => document.querySelector(s);
 const NAV_TRANSITION_MS = 240;
 const NAV_TRANSITION_EASING = "cubic-bezier(0.22, 0.61, 0.36, 1)";
+const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+
+window.__STORAGE_BROKEN__ = Boolean(window.__STORAGE_BROKEN__);
+let storageErrorLogged = false;
+
+function markStorageBroken(err){
+  window.__STORAGE_BROKEN__ = true;
+  if (storageErrorLogged) return;
+  storageErrorLogged = true;
+  const name = err?.name || "StorageError";
+  const message = err?.message || "Onbekende localStorage-fout";
+  console.error(`[storage] localStorage fout: ${name}: ${message}`);
+}
+
+function safeLSGet(key){
+  if (window.__STORAGE_BROKEN__) return null;
+  try {
+    return window.localStorage.getItem(key);
+  } catch (err) {
+    markStorageBroken(err);
+    return null;
+  }
+}
+
+function safeLSSet(key, valueStr){
+  if (window.__STORAGE_BROKEN__) return false;
+  try {
+    window.localStorage.setItem(key, valueStr);
+    return true;
+  } catch (err) {
+    markStorageBroken(err);
+    return false;
+  }
+}
+
+function safeLSRemove(key){
+  if (window.__STORAGE_BROKEN__) return false;
+  try {
+    window.localStorage.removeItem(key);
+    return true;
+  } catch (err) {
+    markStorageBroken(err);
+    return false;
+  }
+}
+
+let saveStateTimer = null;
+function scheduleSaveState(nextState = state){
+  if (saveStateTimer) clearTimeout(saveStateTimer);
+  saveStateTimer = setTimeout(()=>{
+    saveStateTimer = null;
+    try {
+      const payload = JSON.stringify(nextState);
+      safeLSSet(STORAGE_KEY, payload);
+    } catch (err) {
+      markStorageBroken(err);
+    }
+  }, 400);
+}
 
 const uid = () => Math.random().toString(16).slice(2) + "-" + Math.random().toString(16).slice(2);
 const now = () => Date.now();
@@ -344,78 +403,72 @@ function ensureCoreProducts(st){
 }
 
 function loadState(){
-  const raw = localStorage.getItem(STORAGE_KEY);
+  const raw = safeLSGet(STORAGE_KEY);
   if (!raw){
-    const st = defaultState();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
-    return st;
+    return defaultState();
   }
   const parsed = safeParseState(raw);
   if (!parsed.ok){
-    const st = defaultState();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
-    return st;
+    return defaultState();
   }
   const st = validateAndRepairState(migrateState(parsed.value));
+  let didMigrate = false;
 
   // migrations
-  if (!st.settings) st.settings = { hourlyRate: 38, vatRate: 0.21, theme: "night" };
-  if (!("hourlyRate" in st.settings)) st.settings.hourlyRate = 38;
-  if (!("vatRate" in st.settings)) st.settings.vatRate = 0.21;
-  if (!("theme" in st.settings)) st.settings.theme = "night";
+  if (!st.settings) { st.settings = { hourlyRate: 38, vatRate: 0.21, theme: "night" }; didMigrate = true; }
+  if (!("hourlyRate" in st.settings)) { st.settings.hourlyRate = 38; didMigrate = true; }
+  if (!("vatRate" in st.settings)) { st.settings.vatRate = 0.21; didMigrate = true; }
+  if (!("theme" in st.settings)) { st.settings.theme = "night"; didMigrate = true; }
   st.settings.theme = normalizeTheme(st.settings.theme);
-  if (!st.customers) st.customers = [];
-  if (!st.products) st.products = [];
-  if (!st.logs) st.logs = [];
-  if (!st.settlements) st.settlements = [];
-  if (!("activeLogId" in st)) st.activeLogId = null;
+  if (!st.customers) { st.customers = []; didMigrate = true; }
+  if (!st.products) { st.products = []; didMigrate = true; }
+  if (!st.logs) { st.logs = []; didMigrate = true; }
+  if (!st.settlements) { st.settlements = []; didMigrate = true; }
+  if (!("activeLogId" in st)) { st.activeLogId = null; didMigrate = true; }
   ensureUIPreferences(st);
 
   for (const c of st.customers){
-    if (!("demo" in c)) c.demo = false;
+    if (!("demo" in c)) { c.demo = false; didMigrate = true; }
   }
   ensureUniqueCustomerNicknames(st);
   for (const p of st.products){
-    if (!("demo" in p)) p.demo = false;
+    if (!("demo" in p)) { p.demo = false; didMigrate = true; }
   }
 
   ensureCoreProducts(st);
 
   // settlement status default
   for (const s of st.settlements){
-    if (!s.status) s.status = "draft";
-    if (!s.lines) s.lines = [];
-    if (!s.logIds) s.logIds = [];
-    if (!("markedCalculated" in s)) s.markedCalculated = s.status === "calculated";
-    if (!("isCalculated" in s)) s.isCalculated = Boolean(s.markedCalculated || s.status === "calculated" || s.status === "paid" || s.calculatedAt);
-    if (!("calculatedAt" in s)) s.calculatedAt = s.isCalculated ? (s.createdAt || now()) : null;
-    if (!("invoicePaid" in s)) s.invoicePaid = false;
-    if (!("cashPaid" in s)) s.cashPaid = false;
-    if (!("invoiceAmount" in s)) s.invoiceAmount = 0;
-    if (!("cashAmount" in s)) s.cashAmount = 0;
-    if (!("invoiceLocked" in s)) s.invoiceLocked = Boolean(s.isCalculated);
+    if (!s.status) { s.status = "draft"; didMigrate = true; }
+    if (!s.lines) { s.lines = []; didMigrate = true; }
+    if (!s.logIds) { s.logIds = []; didMigrate = true; }
+    if (!("markedCalculated" in s)) { s.markedCalculated = s.status === "calculated"; didMigrate = true; }
+    if (!("isCalculated" in s)) { s.isCalculated = Boolean(s.markedCalculated || s.status === "calculated" || s.status === "paid" || s.calculatedAt); didMigrate = true; }
+    if (!("calculatedAt" in s)) { s.calculatedAt = s.isCalculated ? (s.createdAt || now()) : null; didMigrate = true; }
+    if (!("invoicePaid" in s)) { s.invoicePaid = false; didMigrate = true; }
+    if (!("cashPaid" in s)) { s.cashPaid = false; didMigrate = true; }
+    if (!("invoiceAmount" in s)) { s.invoiceAmount = 0; didMigrate = true; }
+    if (!("cashAmount" in s)) { s.cashAmount = 0; didMigrate = true; }
+    if (!("invoiceLocked" in s)) { s.invoiceLocked = Boolean(s.isCalculated); didMigrate = true; }
     syncSettlementDatesFromLogs(s, st);
     ensureSettlementAllocations(s, { sourceState: st });
     ensureSettlementInvoiceDefaults(s, st.settlements || []);
     syncSettlementAmounts(s);
-    if (!("demo" in s)) s.demo = false;
+    if (!("demo" in s)) { s.demo = false; didMigrate = true; }
   }
   // log fields
   for (const l of st.logs){
-    if (!l.segments) l.segments = [];
-    if (!l.items) l.items = [];
-    if (!l.date) l.date = todayISO();
-    if (!("demo" in l)) l.demo = false;
+    if (!l.segments) { l.segments = []; didMigrate = true; }
+    if (!l.items) { l.items = []; didMigrate = true; }
+    if (!l.date) { l.date = todayISO(); didMigrate = true; }
+    if (!("demo" in l)) { l.demo = false; didMigrate = true; }
   }
 
   ensureUIPreferences(st);
-
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
+  if (didMigrate) scheduleSaveState(st);
 
   return st;
 }
-
-function saveState(nextState = state){ localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState)); }
 
 const DEMO = {
   firstNames: ["Jan", "Els", "Koen", "Sofie", "Lotte", "Tom", "An", "Pieter", "Nina", "Wim", "Bram", "Fien", "Arne", "Joke", "Raf", "Mira", "Tine", "Milan"],
@@ -1512,16 +1565,17 @@ const ui = {
 };
 
 if (!state.ui?.demoDefaultLoaded){
-  const changed = seedDemoPeriod(state, { months: 24, force: false, seed: "demo-v2" });
+  const demoMonths = isStandalone ? 3 : 24;
+  const changed = isStandalone ? false : seedDemoPeriod(state, { months: demoMonths, force: false, seed: "demo-v2" });
   state.ui = state.ui || {};
   state.ui.demoDefaultLoaded = true;
-  if (changed) saveState(state);
+  if (changed || isStandalone) scheduleSaveState(state);
 }
 
 // Guardrail: keep state mutations inside actions + commit.
 function commit(){
   state = validateAndRepairState(state);
-  saveState(state);
+  scheduleSaveState(state);
   render();
 }
 
@@ -2443,8 +2497,10 @@ function _attachSettingsHandlers(){
   };
 
   $("#fillDemoBtn").onclick = ()=>{
-    if (!confirmAction("Demo data toevoegen voor 24 maanden (2 jaar)?")) return;
-    const changed = seedDemoPeriod(state, { months: 24, force: false, seed: "demo-v2" });
+    const demoMonths = isStandalone ? 3 : 24;
+    const demoLabel = isStandalone ? "3 maanden" : "24 maanden (2 jaar)";
+    if (!confirmAction(`Demo data toevoegen voor ${demoLabel}?`)) return;
+    const changed = seedDemoPeriod(state, { months: demoMonths, force: false, seed: "demo-v2" });
     if (changed){
 
       commit();
@@ -2468,13 +2524,13 @@ function _attachSettingsHandlers(){
 
   $("#resetAllBtn").onclick = ()=>{
     if (!confirmAction("Reset alles? Dit wist alle lokale data.")) return;
-    localStorage.removeItem(STORAGE_KEY);
+    safeLSRemove(STORAGE_KEY);
     location.reload();
   };
 
   $("#backupExportBtn").onclick = ()=>{
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = safeLSGet(STORAGE_KEY);
       if (!raw){
         setBackupFeedback("error", "Er is geen lokale data gevonden om te exporteren.");
         return;
@@ -2541,7 +2597,12 @@ function _attachSettingsHandlers(){
         return;
       }
 
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload.data));
+      const stored = safeLSSet(STORAGE_KEY, JSON.stringify(payload.data));
+      if (!stored){
+        setBackupFeedback("error", "Import opgeslagen in geheugen mislukt: lokale opslag is niet beschikbaar.");
+        event.target.value = "";
+        return;
+      }
       location.reload();
     } catch {
       setBackupFeedback("error", "Import mislukt: kon het backup-bestand niet verwerken.");
@@ -2575,7 +2636,7 @@ function _attachSettingsHandlers(){
       return;
     }
 
-    localStorage.removeItem(STORAGE_KEY);
+    safeLSRemove(STORAGE_KEY);
     location.reload();
   };
 }
@@ -2802,13 +2863,18 @@ function renderSettingsSheet(){
       <div class="card stack">
         <div class="item-title">Demo data</div>
         <div class="meta-text">Demo records: klanten ${demoCounts.customers} · logs ${demoCounts.logs} · afrekeningen ${demoCounts.settlements}</div>
-        <button class="btn" id="fillDemoBtn">Vul demo data (2 jaar)</button>
+        <button class="btn" id="fillDemoBtn">${isStandalone ? "Genereer demo data (3 maanden)" : "Vul demo data (2 jaar)"}</button>
         <button class="btn danger" id="clearDemoBtn">Wis demo data</button>
       </div>
 
       <div class="card stack">
         <div class="item-title">Geavanceerd</div>
         <button class="btn danger" id="resetAllBtn">Reset alles</button>
+      </div>
+
+      <div class="card stack">
+        <div class="item-title">Opslagstatus</div>
+        ${window.__STORAGE_BROKEN__ ? `<div class="meta-text" style="color:rgba(255,77,77,.92);">Opslagprobleem op iPhone. Maak backup en herstart.</div>` : `<div class="meta-text">Lokale opslag werkt normaal.</div>`}
       </div>
 
       <div class="card stack">
