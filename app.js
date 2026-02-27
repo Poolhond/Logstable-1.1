@@ -1125,8 +1125,13 @@ function getLogVisualState(log){
   return { state: "free", color: "#93a0b5" };
 }
 function getSettlementTotals(settlement){
-  const invoiceTotals = bucketTotals(settlement.lines, "invoice");
-  const cashTotals = bucketTotals(settlement.lines, "cash");
+  // Nieuw pad: gebruik allocations als bron van waarheid
+  if (settlement && settlement.allocations){
+    return getTotalsFromAllocations(settlement);
+  }
+  // Legacy pad: lees uit lines
+  const invoiceTotals = bucketTotals(settlement?.lines, "invoice");
+  const cashTotals = bucketTotals(settlement?.lines, "cash");
   return {
     invoiceSubtotal: invoiceTotals.subtotal,
     invoiceVat: invoiceTotals.vat,
@@ -1445,6 +1450,156 @@ function computeSettlementFromLogs(customerId, logIds){
   return computeSettlementFromLogsInState(state, customerId, logIds);
 }
 
+// ---------- Allocation helpers (bron van waarheid = logs) ----------
+
+/**
+ * computeBaseTotals: lees werkuren + producten uit gekoppelde logs.
+ * Returns { baseWorkHours, baseDate, productMap }
+ * productMap: Map<productId, { qty, unitPrice, name, unit, vatRate }>
+ */
+function computeBaseTotals(settlement, sourceState = state){
+  const logIds = settlement.logIds || [];
+  let workMs = 0;
+  let baseDate = "";
+  const productMap = new Map();
+
+  for (const id of logIds){
+    const log = sourceState.logs.find(l => l.id === id);
+    if (!log) continue;
+    workMs += sumWorkMs(log);
+    if (log.date > baseDate) baseDate = log.date;
+    for (const item of (log.items || [])){
+      const key = item.productId || "free";
+      if (!productMap.has(key)){
+        const prod = sourceState.products.find(p => p.id === key);
+        productMap.set(key, {
+          qty: 0,
+          unitPrice: Number(item.unitPrice) || 0,
+          name: prod?.name || item.name || item.description || "Product",
+          unit: prod?.unit || "keer",
+          vatRate: prod?.vatRate ?? 0.21
+        });
+      }
+      const cur = productMap.get(key);
+      cur.qty += Number(item.qty) || 0;
+      cur.unitPrice = Number(item.unitPrice) || cur.unitPrice;
+    }
+  }
+  const baseWorkHours = roundToNearestHalf(workMs / 3600000);
+  return { baseWorkHours, baseDate, productMap };
+}
+
+/**
+ * buildAllocationsFromLogs: bouw settlement.allocations op uit logs.
+ * Bewaart bestaande cashQty verdeling indien baseQty gelijk bleef.
+ * Migreert vanuit oude `lines` structuur als er nog geen allocations zijn.
+ */
+function buildAllocationsFromLogs(settlement, sourceState = state){
+  const { baseWorkHours, baseDate, productMap } = computeBaseTotals(settlement, sourceState);
+  const labourProduct = sourceState.products.find(p => {
+    const n = (p.name || "").toLowerCase();
+    return n === "werk" || n === "arbeid";
+  });
+  const hourlyRate = Number(sourceState.settings.hourlyRate || 38);
+  const oldAllocations = settlement.allocations || null;
+  const oldLines = settlement.lines || [];
+  const newAllocations = {};
+
+  // Work hours
+  if (baseWorkHours > 0){
+    let cashQty = 0;
+    if (oldAllocations?.work && round2(oldAllocations.work.baseQty) === baseWorkHours){
+      cashQty = Math.min(oldAllocations.work.cashQty || 0, baseWorkHours);
+    } else if (!oldAllocations){
+      // Migreer vanuit oude lines
+      const cashWorkLine = oldLines.find(l => (l.bucket || "invoice") === "cash" && isWorkProduct(l));
+      cashQty = Math.min(Number(cashWorkLine?.qty) || 0, baseWorkHours);
+    }
+    cashQty = round2(Math.max(0, Math.min(baseWorkHours, cashQty)));
+    newAllocations.work = {
+      baseQty: baseWorkHours,
+      invoiceQty: round2(baseWorkHours - cashQty),
+      cashQty,
+      unitPrice: hourlyRate,
+      productId: labourProduct?.id || null,
+      name: labourProduct?.name || "Werk",
+      unit: labourProduct?.unit || "uur",
+      vatRate: labourProduct?.vatRate ?? 0.21
+    };
+  }
+
+  // Products
+  for (const [productId, info] of productMap.entries()){
+    const key = `p:${productId}`;
+    const baseQty = round2(info.qty);
+    let cashQty = 0;
+    if (oldAllocations?.[key] && round2(oldAllocations[key].baseQty) === baseQty){
+      cashQty = Math.min(oldAllocations[key].cashQty || 0, baseQty);
+    } else if (!oldAllocations){
+      const cashLine = oldLines.find(l => (l.bucket || "invoice") === "cash" && l.productId === productId);
+      cashQty = Math.min(Number(cashLine?.qty) || 0, baseQty);
+    }
+    cashQty = round2(Math.max(0, Math.min(baseQty, cashQty)));
+    newAllocations[key] = {
+      baseQty,
+      invoiceQty: round2(baseQty - cashQty),
+      cashQty,
+      unitPrice: round2(info.unitPrice),
+      productId: productId !== "free" ? productId : null,
+      name: info.name,
+      unit: info.unit,
+      vatRate: info.vatRate
+    };
+  }
+
+  settlement.allocations = newAllocations;
+  // Datum consistency: settlement.date = max(log.date)
+  if (baseDate) settlement.date = baseDate;
+  return newAllocations;
+}
+
+/**
+ * shiftAllocation: verschuif qty tussen factuur en cash voor één item.
+ * key = "work" | "p:<productId>"
+ * direction = "toCash" | "toInvoice"
+ * Invariant: invoiceQty + cashQty == baseQty
+ */
+function shiftAllocation(settlement, key, direction, step){
+  if (isSettlementCalculated(settlement)) return;
+  const alloc = (settlement.allocations || {})[key];
+  if (!alloc) return;
+  let cashQty = alloc.cashQty;
+  if (direction === "toCash") cashQty = round2(cashQty + step);
+  else if (direction === "toInvoice") cashQty = round2(cashQty - step);
+  cashQty = Math.max(0, Math.min(alloc.baseQty, cashQty));
+  alloc.cashQty = round2(cashQty);
+  alloc.invoiceQty = round2(alloc.baseQty - cashQty);
+}
+
+/**
+ * getTotalsFromAllocations: bereken subtotalen vanuit allocations.
+ * Factuur is incl BTW, cash is excl BTW.
+ */
+function getTotalsFromAllocations(settlement){
+  // Lees btwRate uit settings (met fallback voor startup-volgorde)
+  const btwRate = Number(
+    (typeof state !== "undefined" ? state?.settings?.vatRate : null) ?? 0.21
+  );
+  const allocs = settlement.allocations || {};
+  let invoiceExcl = 0;
+  let cashExcl = 0;
+  for (const alloc of Object.values(allocs)){
+    invoiceExcl += (alloc.invoiceQty || 0) * (alloc.unitPrice || 0);
+    cashExcl += (alloc.cashQty || 0) * (alloc.unitPrice || 0);
+  }
+  invoiceExcl = round2(invoiceExcl);
+  cashExcl = round2(cashExcl);
+  const invoiceVat = round2(invoiceExcl * btwRate);
+  const invoiceTotal = round2(invoiceExcl + invoiceVat);
+  const cashTotal = round2(cashExcl);
+  return { invoiceSubtotal: invoiceExcl, invoiceVat, invoiceTotal, cashSubtotal: cashExcl, cashTotal };
+}
+
 // ---------- UI state ----------
 const ui = {
   navStack: [{ view: "logs" }],
@@ -1538,51 +1693,42 @@ const actions = {
     return s;
   },
   linkLogToSettlement(logId, settlementId){
+    // Ontkoppel de log uit alle afrekeningen (inclusief calculated: geen wijziging voor die)
     for (const s of state.settlements){
+      if (isSettlementCalculated(s)) continue; // geen wijziging aan calculated settlements
       s.logIds = (s.logIds || []).filter(x => x !== logId);
-      syncSettlementDatesFromLogs(s);
-      ensureSettlementInvoiceDefaults(s, state.settlements || []);
+      if (s.logIds.length === 0) s.allocations = {};
+      else buildAllocationsFromLogs(s);
     }
     if (settlementId === "none") return commit();
     if (settlementId === "new"){
       const log = state.logs.find(l => l.id === logId);
       if (!log) return;
-      const invoiceDate = log.date || todayISO();
       const s = {
-        id: uid(), customerId: log.customerId, date: invoiceDate, createdAt: now(), logIds: [logId], lines: [],
+        id: uid(), customerId: log.customerId, date: log.date || todayISO(),
+        createdAt: now(), logIds: [logId], lines: [], allocations: {},
         status: "draft", markedCalculated: false, isCalculated: false, calculatedAt: null,
         invoiceAmount: 0, cashAmount: 0, invoicePaid: false, cashPaid: false,
-        invoiceNumber: null,
-        invoiceDate,
-        invoiceLocked: false
+        invoiceNumber: null, invoiceDate: log.date || todayISO(), invoiceLocked: false
       };
-      s.lines = computeSettlementFromLogs(s.customerId, s.logIds).lines;
-      syncSettlementDatesFromLogs(s);
-      ensureSettlementInvoiceDefaults(s, state.settlements || []);
+      buildAllocationsFromLogs(s);
+      syncSettlementAmounts(s);
       state.settlements.unshift(s);
       commit();
       return s;
     }
     const s = state.settlements.find(x => x.id === settlementId);
     if (!s) return commit();
+    if (isSettlementCalculated(s)) return commit(); // geen link aan calculated
     s.logIds = Array.from(new Set([...(s.logIds || []), logId]));
-    const prev = new Map((s.lines || []).map(li => [li.productId + "|" + li.description, li.bucket]));
-    s.lines = computeSettlementFromLogs(s.customerId, s.logIds).lines.map(li => ({ ...li, bucket: prev.get(li.productId + "|" + li.description) || li.bucket }));
-    syncSettlementDatesFromLogs(s);
-    ensureSettlementInvoiceDefaults(s, state.settlements || []);
+    buildAllocationsFromLogs(s);
+    syncSettlementAmounts(s);
     commit();
     return s;
   },
   calculateSettlement(settlementId){
     const settlement = state.settlements.find(x => x.id === settlementId);
     if (!settlement) return { ok: false, reason: "not_found" };
-
-    syncSettlementDatesFromLogs(settlement);
-    ensureSettlementInvoiceDefaults(settlement, state.settlements || []);
-    if (settlementHasInvoiceComponent(settlement)){
-      settlement.invoiceNumber = String(settlement.invoiceNumber || "").trim();
-    }
-
     calculateSettlement(settlement);
     commit();
     return { ok: true };
@@ -3566,52 +3712,27 @@ function renderSettlementStatusIcons(settlement){
 }
 
 function calculateSettlement(settlement){
+  // finalizeSettlement: VERANDER NOOIT quantities/allocations.
+  // Doet enkel: status frozen, datum, factuurnummer, totals voor weergave.
   if (!settlement) return;
+
+  // Bouw/update allocations vanuit logs (enkel als nog niet calculated)
+  buildAllocationsFromLogs(settlement);
+
   syncSettlementDatesFromLogs(settlement);
-  ensureSettlementInvoiceDefaults(settlement, state.settlements || []);
-  const computed = computeSettlementFromLogs(settlement.customerId, settlement.logIds || []);
-  const sig = (line)=>`${line?.productId || ""}||${String(line?.description || line?.name || "").trim().toLowerCase()}||${line?.unit || ""}`;
-  const existingLines = settlement.lines || [];
-  const computedLines = computed.lines || [];
-  const computedBucketSigSet = new Set(computedLines.map(li => `${li.bucket || "invoice"}||${sig(li)}`));
-  const existingByBucketSig = new Map();
-  for (const line of existingLines){
-    const bucket = line.bucket || "invoice";
-    const key = `${bucket}||${sig(line)}`;
-    if (!existingByBucketSig.has(key)) existingByBucketSig.set(key, line);
+
+  // Factuurnummer: enkel toewijzen als er een invoice-component is
+  const totals = getTotalsFromAllocations(settlement);
+  if (totals.invoiceTotal > 0){
+    lockInvoice(settlement);
+    ensureSettlementInvoiceDefaults(settlement, state.settlements || []);
+  } else {
+    settlement.invoiceNumber = null;
   }
 
-  const mergedLines = existingLines.filter(line => {
-    const bucket = line.bucket || "invoice";
-    const key = `${bucket}||${sig(line)}`;
-    return line.manual === true || !computedBucketSigSet.has(key);
-  });
-
-  for (const li of computedLines){
-    const bucket = li.bucket || "invoice";
-    const key = `${bucket}||${sig(li)}`;
-    const existing = existingByBucketSig.get(key);
-    if (existing){
-      mergedLines.push({
-        ...existing,
-        qty: li.qty,
-        unitPrice: li.unitPrice,
-        vatRate: li.vatRate,
-        description: li.description,
-        unit: li.unit,
-        productId: li.productId
-      });
-      continue;
-    }
-    mergedLines.push({ ...li, id: li.id || uid(), bucket });
-  }
-
-  settlement.lines = mergedLines;
-  ensureDefaultSettlementLines(settlement);
   settlement.markedCalculated = true;
   settlement.isCalculated = true;
   settlement.calculatedAt = now();
-  lockInvoice(settlement);
   syncSettlementStatus(settlement);
   syncSettlementAmounts(settlement);
 }
@@ -3687,7 +3808,7 @@ function renderSettlementSheet(id){
   if (!("invoiceLocked" in s)) s.invoiceLocked = Boolean(s.isCalculated);
   syncSettlementDatesFromLogs(s);
   ensureSettlementInvoiceDefaults(s, state.settlements || []);
-  ensureDefaultSettlementLines(s);
+  // Verwijder ensureDefaultSettlementLines — allocations zijn bron van waarheid
   syncSettlementStatus(s);
 
   const isEdit = isSettlementEditing(s.id);
@@ -3703,50 +3824,67 @@ function renderSettlementSheet(id){
     })
     .sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
 
+  // Zorg dat allocations bestaan (migratie of eerste keer openen)
+  if (!s.allocations){
+    buildAllocationsFromLogs(s);
+    syncSettlementAmounts(s);
+  }
+
   const pay = settlementPaymentState(s);
   const visual = getSettlementVisualState(s);
   const showInvoiceSection = pay.hasInvoice;
-  const allLines = s.lines || [];
-  const workInvoiceLine = findSettlementQuickLine(allLines, 'invoice', 'work');
-  const workCashLine = findSettlementQuickLine(allLines, 'cash', 'work');
-  const greenInvoiceLine = findSettlementQuickLine(allLines, 'invoice', 'green');
-  const greenCashLine = findSettlementQuickLine(allLines, 'cash', 'green');
   const logbookTotals = settlementLogbookTotals(s);
 
-  const lineLabel = (line)=> String((getProduct(line.productId)?.name) || line.name || line.description || '').trim().toLowerCase();
-  const isCoreLine = (line)=> {
-    const label = lineLabel(line);
-    return isWorkProduct(line) || isGreenProduct(line) || label === 'werk' || label === 'groen';
-  };
-  const extraByKey = new Map();
-  for (const line of allLines){
-    if (isCoreLine(line)) continue;
-    const bucket = (line.bucket || 'invoice') === 'cash' ? 'cash' : 'invoice';
-    const keyBase = line.productId ? `p:${line.productId}` : `n:${lineLabel(line) || line.id}`;
-    if (!extraByKey.has(keyBase)){
-      extraByKey.set(keyBase, {
-        label: (getProduct(line.productId)?.name) || line.name || line.description || 'Product',
-        invoiceQty: 0,
-        cashQty: 0
-      });
-    }
-    const item = extraByKey.get(keyBase);
-    item[bucket === 'cash' ? 'cashQty' : 'invoiceQty'] = round2(item[bucket === 'cash' ? 'cashQty' : 'invoiceQty'] + (Number(line.qty) || 0));
+  // Bouw allocation-rijen vanuit s.allocations (bron van waarheid)
+  const workIcon = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="7"/><path d="M12 8.6v3.8l2.7 1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const greenIcon = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M5 15c2.2-6.2 8.4-8.7 14-9-1.1 5.7-3 11.8-9 14-4 1.4-7-1.3-5-5Z" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 14.5c2 .2 4.6-.4 7.5-2.4" stroke-linecap="round"/></svg>`;
+  const greenProduct = findGreenProduct();
+  const allocationRows = [];
+  const allocs = s.allocations || {};
+  if (allocs.work){
+    allocationRows.push({
+      key: 'work', icon: workIcon, label: allocs.work.name || 'Werk',
+      invoiceQty: allocs.work.invoiceQty || 0, cashQty: allocs.work.cashQty || 0,
+      baseQty: allocs.work.baseQty || 0
+    });
   }
-  const extraProducts = Array.from(extraByKey.values()).filter(item => item.invoiceQty > 0 || item.cashQty > 0);
+  // Producten: groen eerst, dan andere
+  const productEntries = Object.entries(allocs).filter(([k]) => k !== 'work');
+  productEntries.sort(([, a], [, b]) => {
+    const aG = a.productId && greenProduct && a.productId === greenProduct.id;
+    const bG = b.productId && greenProduct && b.productId === greenProduct.id;
+    if (aG && !bG) return -1;
+    if (!aG && bG) return 1;
+    return 0;
+  });
+  for (const [key, alloc] of productEntries){
+    const prod = alloc.productId ? getProduct(alloc.productId) : null;
+    const isGreen = prod ? isGreenProduct(prod) : false;
+    allocationRows.push({
+      key, icon: isGreen ? greenIcon : null,
+      label: alloc.name || prod?.name || 'Product',
+      invoiceQty: alloc.invoiceQty || 0, cashQty: alloc.cashQty || 0,
+      baseQty: alloc.baseQty || 0
+    });
+  }
 
-  const renderAllocationControls = ({ bucket, kind, qty })=>`
-    <div class="allocation-controls" data-bucket="${bucket}">
-      ${isEdit ? `<button class="iconbtn iconbtn-sm" type="button" data-settle-quick-step="${bucket}|${kind}|-1" aria-label="${kind} min">−</button>` : `<span class="allocation-btn-placeholder"></span>`}
+  // Render helpers voor de matrix
+  const renderAllocationControls = ({ key, bucket, qty })=>{
+    // Richting: invoice-min = toCash, invoice-plus = toInvoice
+    //           cash-min = toInvoice, cash-plus = toCash
+    const dirMinus = bucket === 'invoice' ? 'toCash' : 'toInvoice';
+    const dirPlus  = bucket === 'invoice' ? 'toInvoice' : 'toCash';
+    return `<div class="allocation-controls" data-bucket="${bucket}">
+      ${isEdit ? `<button class="iconbtn iconbtn-sm" type="button" data-settle-shift="${esc(key)}|${dirMinus}" aria-label="${bucket} min">−</button>` : `<span class="allocation-btn-placeholder"></span>`}
       <div class="allocation-value mono tabular">${esc(String(formatQuickQty(qty)))}</div>
-      ${isEdit ? `<button class="iconbtn iconbtn-sm" type="button" data-settle-quick-step="${bucket}|${kind}|1" aria-label="${kind} plus">+</button>` : `<span class="allocation-btn-placeholder"></span>`}
-    </div>
-  `;
+      ${isEdit ? `<button class="iconbtn iconbtn-sm" type="button" data-settle-shift="${esc(key)}|${dirPlus}" aria-label="${bucket} plus">+</button>` : `<span class="allocation-btn-placeholder"></span>`}
+    </div>`;
+  };
 
-  const renderAllocationMatrixRow = ({ kind, icon, invoiceQty, cashQty })=>`
-    <div class="allocation-matrix-icon" aria-hidden="true">${icon}</div>
-    ${renderAllocationControls({ bucket: 'invoice', kind, qty: invoiceQty })}
-    ${renderAllocationControls({ bucket: 'cash', kind, qty: cashQty })}
+  const renderAllocationRow = ({ key, icon, label, invoiceQty, cashQty })=>`
+    ${icon ? `<div class="allocation-matrix-icon" aria-hidden="true">${icon}</div>` : `<div class="allocation-matrix-label">${esc(label)}</div>`}
+    ${renderAllocationControls({ key, bucket: 'invoice', qty: invoiceQty })}
+    ${renderAllocationControls({ key, bucket: 'cash', qty: cashQty })}
   `;
 
   const renderAllocationStaticRow = ({ label, invoiceValue, cashValue, rowClass = '' })=>`
@@ -3762,9 +3900,6 @@ function renderSettlementSheet(id){
       <span class="allocation-btn-placeholder" aria-hidden="true"></span>
     </div>
   `;
-
-  const workIcon = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="7"/><path d="M12 8.6v3.8l2.7 1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-  const greenIcon = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M5 15c2.2-6.2 8.4-8.7 14-9-1.1 5.7-3 11.8-9 14-4 1.4-7-1.3-5-5Z" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 14.5c2 .2 4.6-.4 7.5-2.4" stroke-linecap="round"/></svg>`;
 
   $('#sheetActions').innerHTML = '';
   $('#sheetBody').style.paddingBottom = 'calc(var(--bottom-tabbar-height) + var(--status-tabbar-height) + env(safe-area-inset-bottom) + 24px)';
@@ -3782,23 +3917,7 @@ function renderSettlementSheet(id){
           <div class="allocation-col-head" aria-hidden="true"></div>
           <div class="allocation-col-head">Factuur</div>
           <div class="allocation-col-head">Cash</div>
-          ${renderAllocationMatrixRow({
-            kind: 'work',
-            icon: workIcon,
-            invoiceQty: workInvoiceLine?.qty || 0,
-            cashQty: workCashLine?.qty || 0
-          })}
-          ${renderAllocationMatrixRow({
-            kind: 'green',
-            icon: greenIcon,
-            invoiceQty: greenInvoiceLine?.qty || 0,
-            cashQty: greenCashLine?.qty || 0
-          })}
-          ${extraProducts.map(item => renderAllocationStaticRow({
-            label: item.label,
-            invoiceValue: esc(String(formatQuickQty(item.invoiceQty))),
-            cashValue: esc(String(formatQuickQty(item.cashQty)))
-          })).join('')}
+          ${allocationRows.map(row => renderAllocationRow(row)).join('')}
           ${renderAllocationStaticRow({
             label: 'TOTAL',
             invoiceValue: moneyOrBlank(pay.invoiceTotal),
@@ -3934,12 +4053,11 @@ function renderSettlementSheet(id){
           return;
         }
         actions.editSettlement(s.id, (draft)=>{
+          if (isSettlementCalculated(draft)) return; // geen wijziging als calculated
           if (cb.checked) draft.logIds = Array.from(new Set([...(draft.logIds||[]), logId]));
           else draft.logIds = (draft.logIds||[]).filter(x => x !== logId);
-          const prev = new Map((draft.lines || []).map(li => [li.productId + "|" + li.description, li.bucket]));
-          draft.lines = computeSettlementFromLogsInState(state, draft.customerId, draft.logIds || []).lines
-            .map(li => ({ ...li, bucket: prev.get(li.productId + "|" + li.description) || li.bucket }));
-          ensureDefaultSettlementLines(draft);
+          // Herbouw allocations vanuit logs (bron van waarheid)
+          buildAllocationsFromLogs(draft, state);
           syncSettlementAmounts(draft);
         });
         renderSheet();
@@ -3947,23 +4065,35 @@ function renderSettlementSheet(id){
     });
 
     $('#btnRecalc')?.addEventListener('click', ()=>{
-      actions.calculateSettlement(s.id);
+      // Herbereken = herbouw allocations vanuit logs zonder te finaliseren
+      actions.editSettlement(s.id, (draft)=>{
+        if (isSettlementCalculated(draft)) return;
+        buildAllocationsFromLogs(draft, state);
+        syncSettlementAmounts(draft);
+      });
       renderSheet();
     });
 
-    $('#sheetBody').querySelectorAll('[data-settle-quick-step]').forEach(btn=>{
-      const raw = String(btn.getAttribute('data-settle-quick-step') || '');
-      const [bucket, kind, stepRaw] = raw.split('|');
-      const step = Number(stepRaw || '0');
-      if (!bucket || !kind || !Number.isFinite(step) || step === 0) return;
+    $('#sheetBody').querySelectorAll('[data-settle-shift]').forEach(btn=>{
+      const raw = String(btn.getAttribute('data-settle-shift') || '');
+      const [key, direction] = raw.split('|');
+      if (!key || !direction) return;
       bindStepButton(
         btn,
         ()=>{
-          adjustSettlementQuickQty(s.id, bucket, kind, step);
+          // Tap: stap 1.0
+          actions.editSettlement(s.id, (draft)=>{
+            shiftAllocation(draft, key, direction, 1.0);
+            syncSettlementAmounts(draft);
+          });
           renderSheetKeepScroll();
         },
         ()=>{
-          adjustSettlementQuickQty(s.id, bucket, kind, step > 0 ? 0.5 : -0.5);
+          // Long press: stap 0.5
+          actions.editSettlement(s.id, (draft)=>{
+            shiftAllocation(draft, key, direction, 0.5);
+            syncSettlementAmounts(draft);
+          });
           renderSheetKeepScroll();
         }
       );
