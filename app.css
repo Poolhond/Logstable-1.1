@@ -1684,6 +1684,58 @@ h2{
   text-align:right;
   white-space:nowrap;
 }
+.item-title-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.settlement-inv-pill{
+  margin-left:auto;
+  white-space:nowrap;
+}
+
+.settlement-amounts{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:6px;
+}
+
+.amount-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid var(--border);
+  background:rgba(255,255,255,0.02);
+  color:var(--text);
+  font-size:14px;
+  font-weight:700;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+  cursor:pointer;
+}
+
+.amount-chip .amount-icon{
+  font-size:14px;
+  line-height:1;
+  opacity:.9;
+}
+
+.amount-chip.is-open{
+  border-color: var(--status-calculated-border);
+  background: var(--status-calculated-bg);
+}
+
+.amount-chip.is-paid{
+  border-color: var(--status-paid-border);
+  background: var(--status-paid-bg);
+}
+
+.amount-chip:active{
+  transform:scale(0.98);
+}
 .meta-text{
   font-size:11px;
   color:var(--muted);
