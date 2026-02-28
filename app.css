@@ -1699,24 +1699,37 @@ h2{
   text-overflow:ellipsis;
 }
 .settlement-invoice-text{
-  margin-left:auto;
   white-space:nowrap;
   color:var(--muted);
   font-size:12px;
   font-weight:600;
 }
 
-.settlement-amounts{
+.settlement-card-grid{
+  display:grid;
+  grid-template-rows:auto auto;
+  row-gap:2px;
+  width:100%;
+}
+
+.settlement-row-grid{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 120px 120px;
+  column-gap:14px;
+  width:100%;
+  align-items:center;
+}
+
+.settlement-col{
+  min-height:28px;
   display:flex;
-  flex-direction:row;
-  align-items:flex-end;
-  gap:16px;
+  align-items:center;
   justify-content:flex-end;
-  flex-shrink:0;
 }
 
 .amount-inline{
-  display:inline-flex;
+  width:100%;
+  display:flex;
   align-items:center;
   justify-content:flex-end;
   padding:4px 0;
@@ -1731,43 +1744,56 @@ h2{
   line-height:1;
 }
 
-.amount-inline .icon{
-  width:18px;
-  height:18px;
-  display:block;
-  opacity:0.95;
-}
-
-.settlement-row-grid{
-  display:grid;
-  grid-template-columns:minmax(0,1fr) 92px 92px;
-  column-gap:10px;
-  width:100%;
-  align-items:center;
-}
-
-.settlement-col{
-  min-height:28px;
-  display:flex;
+.amount-inline-content{
+  display:inline-flex;
   align-items:center;
   justify-content:flex-end;
+  gap:7px;
 }
 
-.settlement-col .amount-inline{
-  width:100%;
-  text-align:right;
+.amount-inline .icon,
+.settlement-outstanding-content .icon,
+.settlement-detail-item .icon{
+  width:16px;
+  height:16px;
+  display:block;
+  flex:none;
 }
 
 .amount-inline.is-open{
   color: var(--status-calculated-border);
 }
 
-.amount-inline.is-paid{
+.amount-inline.is-paid,
+.settlement-detail-item--green{
   color: var(--status-paid-border);
 }
 
-.amount-inline:active{
+.amount-inline.is-empty .amount-inline-content{
+  visibility:hidden;
+}
+
+.amount-inline:active:not(:disabled){
   transform:scale(0.98);
+}
+
+.amount-inline:disabled{
+  cursor:default;
+}
+
+.settlement-meta-row{
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.25;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.settlement-detail-item{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
 }
 
 .settlement-outstanding-total{
@@ -1776,16 +1802,34 @@ h2{
   font-weight:800;
   line-height:1.2;
   padding:0 4px 8px;
+  text-align:right;
 }
 
 .settlement-outstanding-breakdown{
-  display:flex;
-  justify-content:flex-end;
-  gap:18px;
+  display:grid;
+  grid-template-columns:120px 120px;
+  justify-content:end;
+  column-gap:14px;
   color:var(--text);
   font-size:16px;
   font-weight:700;
   padding:0 4px 8px;
+}
+
+.settlement-outstanding-col{
+  display:flex;
+  justify-content:flex-end;
+}
+
+.settlement-outstanding-content{
+  display:inline-flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:7px;
+}
+
+.settlement-outstanding-content.is-hidden{
+  visibility:hidden;
 }
 
 .amount-chip{
