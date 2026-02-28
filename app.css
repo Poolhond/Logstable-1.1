@@ -1751,7 +1751,7 @@ h2{
   gap:0;
 }
 
-.row-right{
+.settleRowRight{
   display:grid;
   grid-template-columns:auto auto;
   column-gap:12px;
@@ -1759,25 +1759,28 @@ h2{
   justify-content:end;
 }
 
-.invoice-col{
-  width:96px;
+.invoiceInline{
+  min-width:96px;
+  display:inline-flex;
+  justify-content:flex-end;
+  gap:8px;
+  align-items:baseline;
+  white-space:nowrap;
 }
 
-.invoice-number{
-  min-height:16px;
-  color:var(--muted);
-  font-size:12px;
+.invoiceNo{
+  opacity:.75;
+  font-size:.9em;
+}
+
+.invoiceAmt{
   font-weight:600;
-  text-align:right;
 }
 
-.invoice-amount,
-.cash-amount{
+.cashAmt{
+  min-width:84px;
+  white-space:nowrap;
   text-align:right;
-}
-
-.cash-amount{
-  width:84px;
 }
 
 .amount-inline .icon,
@@ -1793,9 +1796,12 @@ h2{
   color: var(--status-calculated-border);
 }
 
-.amount-inline.is-paid,
-.settlement-detail-item--green{
+.amount-inline.is-paid{
   color: var(--status-paid-border);
+}
+
+.settlement-detail-item--green{
+  color:inherit;
 }
 
 .amount-inline.is-empty .amount-inline-content{

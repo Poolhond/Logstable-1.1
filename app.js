@@ -2880,19 +2880,19 @@ function renderSettlements(){
                 </div>
               </div>
 
-              <div class="row-right">
-                <div class="invoice-col">
+              <div class="settleRowRight">
+                <div class="invoiceInline">
                   ${String(s.invoiceNumber||"").trim()
-                    ? `<div class="invoice-number mono">${esc(String(s.invoiceNumber).trim().toUpperCase())}</div>`
+                    ? `<span class="invoiceNo mono">${esc(String(s.invoiceNumber).trim().toUpperCase())}</span>`
                     : ``
                   }
-                  <button class="amount-inline invoice-amount ${flags.invoicePaid ? "is-paid" : "is-open"} ${showInvoice ? "" : "is-empty"}"
+                  <button class="amount-inline invoiceAmt ${flags.invoicePaid ? "is-paid" : "is-open"} ${showInvoice ? "" : "is-empty"}"
                           ${invoiceToggleAttrs}>
                     <span class="amount-inline-content mono tabular"><span class="amount-val">${showInvoice ? formatMoneyEUR0(invoiceAmt) : ""}</span></span>
                   </button>
                 </div>
 
-                <button class="amount-inline cash-amount ${flags.cashPaid ? "is-paid" : "is-open"} ${showCash ? "" : "is-empty"}"
+                <button class="amount-inline cashAmt ${flags.cashPaid ? "is-paid" : "is-open"} ${showCash ? "" : "is-empty"}"
                         ${cashToggleAttrs}>
                   <span class="amount-inline-content mono tabular"><span class="amount-val">${showCash ? formatMoneyEUR0(cashAmt) : ""}</span></span>
                 </button>
