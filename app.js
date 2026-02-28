@@ -248,6 +248,7 @@ function defaultState(){
     settings: {
       hourlyRate: 38,
       vatRate: 0.21,
+      invoiceCounter: 1,
       theme: "night",
       user: {
         name: "",
@@ -316,7 +317,14 @@ function migrateState(st){
 
   if (!Number.isInteger(st.schemaVersion) || st.schemaVersion < 1) st.schemaVersion = 1;
   if (!st.settings || typeof st.settings !== "object" || Array.isArray(st.settings)) st.settings = {};
+  if (!Number.isInteger(st.settings.invoiceCounter) || st.settings.invoiceCounter < 1) st.settings.invoiceCounter = 1;
   if (!st.settings.user) st.settings.user = {};
+  if (!Array.isArray(st.settlements)) st.settlements = [];
+  for (const settlement of st.settlements){
+    if (!("invoiceNumber" in settlement) || !Number.isInteger(settlement.invoiceNumber)) settlement.invoiceNumber = null;
+    if (!("invoiceLabel" in settlement) || settlement.invoiceLabel == null) settlement.invoiceLabel = "";
+    settlement.invoiceLabel = String(settlement.invoiceLabel);
+  }
   if (!Array.isArray(st.customers)) st.customers = [];
   for (const customer of st.customers){
     if (!("kboNummer" in customer)) customer.kboNummer = "";
@@ -439,6 +447,7 @@ function loadState(){
   if (!("hourlyRate" in st.settings)) st.settings.hourlyRate = 38;
   if (!("vatRate" in st.settings)) st.settings.vatRate = 0.21;
   if (!("theme" in st.settings)) st.settings.theme = "night";
+  if (!Number.isInteger(st.settings.invoiceCounter) || st.settings.invoiceCounter < 1) st.settings.invoiceCounter = 1;
   if (!st.settings.user || typeof st.settings.user !== "object" || Array.isArray(st.settings.user)) st.settings.user = {};
   const userFieldDefaults = {
     name: "",
@@ -494,6 +503,12 @@ function loadState(){
     syncSettlementAmounts(s);
     if (!("demo" in s)) s.demo = false;
   }
+  const highestInvoiceNumber = (st.settlements || []).reduce((max, settlement)=>{
+    const value = Number(settlement?.invoiceNumber);
+    if (!Number.isInteger(value) || value < 1) return max;
+    return Math.max(max, value);
+  }, 0);
+  if (st.settings.invoiceCounter <= highestInvoiceNumber) st.settings.invoiceCounter = highestInvoiceNumber + 1;
   // log fields
   for (const l of st.logs){
     if (!l.segments) l.segments = [];
@@ -880,6 +895,7 @@ function seedDemoPeriod(st, { months = 24, force = false, seed = "demo-v2" } = {
       invoicePaid: false,
       cashPaid: false,
       invoiceNumber: null,
+      invoiceLabel: "",
       demo: true
     };
 
@@ -1268,13 +1284,11 @@ function settlementHasInvoiceComponent(settlement, totals = getSettlementTotals(
 
 function getNextInvoiceNumber(settlements = state.settlements || []){
   const highest = (settlements || []).reduce((max, settlement)=>{
-    if (!isSettlementCalculated(settlement)) return max;
-    const digits = String(settlement?.invoiceNumber || "").match(/(\d+)/g) || [];
-    const value = Number(digits.join(""));
-    if (!Number.isFinite(value)) return max;
+    const value = Number(settlement?.invoiceNumber);
+    if (!Number.isInteger(value) || value < 1) return max;
     return Math.max(max, value);
   }, 0);
-  return `F${highest + 1}`;
+  return highest + 1;
 }
 
 function latestLinkedLogDate(settlement, sourceState = state){
@@ -1304,6 +1318,12 @@ function syncSettlementDatesFromLogs(settlement, sourceState = state){
 
 function ensureSettlementInvoiceDefaults(settlement){
   if (!settlement) return;
+
+  if (!Number.isInteger(settlement.invoiceNumber) || settlement.invoiceNumber < 1){
+    settlement.invoiceNumber = null;
+  }
+  if (settlement.invoiceLabel == null) settlement.invoiceLabel = "";
+  settlement.invoiceLabel = String(settlement.invoiceLabel);
 
   const totals = getSettlementTotals(settlement);
   const invoiceTotal = Number(totals?.invoiceTotal || 0);
@@ -1850,6 +1870,7 @@ const actions = {
       status: "draft", markedCalculated: false, isCalculated: false, calculatedAt: null,
       invoiceAmount: 0, cashAmount: 0, invoicePaid: false, cashPaid: false,
       invoiceNumber: null,
+      invoiceLabel: "",
       invoiceDate,
       invoiceLocked: false
     };
@@ -1874,7 +1895,7 @@ const actions = {
         createdAt: now(), logIds: [logId], lines: [], allocations: {},
         status: "draft", markedCalculated: false, isCalculated: false, calculatedAt: null,
         invoiceAmount: 0, cashAmount: 0, invoicePaid: false, cashPaid: false,
-        invoiceNumber: null, invoiceDate: log.date || todayISO(), invoiceLocked: false
+        invoiceNumber: null, invoiceLabel: "", invoiceDate: log.date || todayISO(), invoiceLocked: false
       };
       buildAllocationsFromLogs(s);
       syncSettlementAmounts(s);
@@ -4284,9 +4305,13 @@ function calculateSettlement(settlement){
   const totals = getTotalsFromAllocations(settlement);
   if (totals.invoiceTotal > 0){
     lockInvoice(settlement);
-    const hasInvoiceNumber = Boolean(String(settlement.invoiceNumber || "").trim());
+    const hasInvoiceNumber = Number.isInteger(settlement.invoiceNumber) && settlement.invoiceNumber > 0;
     if (!hasInvoiceNumber){
-      settlement.invoiceNumber = getNextInvoiceNumber(state.settlements || []);
+      if (!Number.isInteger(state.settings.invoiceCounter) || state.settings.invoiceCounter < 1){
+        state.settings.invoiceCounter = getNextInvoiceNumber(state.settlements || []);
+      }
+      settlement.invoiceNumber = state.settings.invoiceCounter;
+      state.settings.invoiceCounter += 1;
     }
   } else {
     settlement.invoiceNumber = null;
@@ -4370,8 +4395,9 @@ function renderSettlementSheet(id){
   syncSettlementStatus(s);
 
   const isEdit = isSettlementEditing(s.id);
-  const invoiceLocked = Boolean(s.invoiceLocked || isSettlementCalculated(s));
-  const invoiceNumberDisplay = String(s.invoiceNumber || "").trim();
+  const hasInvoiceNumber = Number.isInteger(s.invoiceNumber) && s.invoiceNumber > 0;
+  const invoiceNumberDisplay = hasInvoiceNumber ? String(s.invoiceNumber) : "";
+  const invoiceLabelValue = String(s.invoiceLabel || "");
   const customerOptions = state.customers.map(c => `<option value="${c.id}" ${c.id===s.customerId?"selected":""}>${esc(c.nickname||c.name||"Klant")}</option>`).join('');
   const availableLogs = state.logs
     .filter(l => l.customerId === s.customerId)
@@ -4514,11 +4540,24 @@ function renderSettlementSheet(id){
         <div class="summary-row"><span class="label">Notitie</span><span class="num">${esc(s.note || '—')}</span></div>
       </div>
 
+      <div class="section stack section-tight">
+        <h2>Facturatie</h2>
+        ${hasInvoiceNumber ? `
+          <div class="summary-row"><span class="label">Factuurnummer</span><span class="num mono">${esc(invoiceNumberDisplay)}</span></div>
+          <div class="compact-row"><label for="invoiceLabelInput">Periode label, bv. Kwartaal 1</label><div><input id="invoiceLabelInput" value="${esc(invoiceLabelValue)}" placeholder="Periode label, bv. Kwartaal 1" /></div></div>
+          <div class="row gap8">
+            <button class="btn" id="saveInvoiceLabel" type="button">Periode opslaan</button>
+            <button class="btn" id="exportInvoicePdf" type="button">PDF exporteren</button>
+          </div>
+        ` : `
+          <button class="btn" id="makeInvoice" type="button">Maak factuur</button>
+        `}
+      </div>
+
       ${isEdit ? `
       <div class="section stack">
         <h2>Acties</h2>
         <div class="compact-row"><label>Klant</label><div><select id="sCustomer">${customerOptions}</select></div></div>
-        ${showInvoiceNumberSection ? `<div class="compact-row"><label>Factuurnr</label><div>${invoiceLocked ? `<span class="small mono">${esc(invoiceNumberDisplay)}</span>` : `<input id="invoiceNumberInput" value="${esc(invoiceNumberDisplay)}" />`}</div></div>` : ''}
         <textarea id="sNote" rows="3">${esc(s.note||"")}</textarea>
         <button class="btn danger" id="delSettlement">Verwijder</button>
       </div>` : ""}
@@ -4567,6 +4606,26 @@ function renderSettlementSheet(id){
     renderSheet();
   });
 
+  $('#makeInvoice')?.addEventListener('click', ()=>{
+    if (Number.isInteger(s.invoiceNumber) && s.invoiceNumber > 0) return;
+    if (!Number.isInteger(state.settings.invoiceCounter) || state.settings.invoiceCounter < 1) state.settings.invoiceCounter = 1;
+    s.invoiceNumber = state.settings.invoiceCounter;
+    state.settings.invoiceCounter += 1;
+    commit();
+    renderSheet();
+  });
+
+  $('#saveInvoiceLabel')?.addEventListener('click', ()=>{
+    const value = String($('#invoiceLabelInput')?.value || '').trim();
+    s.invoiceLabel = value;
+    commit();
+    renderSheet();
+  });
+
+  $('#exportInvoicePdf')?.addEventListener('click', ()=>{
+    alert("komt eraan");
+  });
+
   if (!isEdit){
     $('#sheetBody').querySelectorAll('[data-open-linked-log]').forEach(btn=>{
       btn.addEventListener('click', ()=> openSheet('log', btn.getAttribute('data-open-linked-log')));
@@ -4593,14 +4652,6 @@ function renderSettlementSheet(id){
       });
     });
 
-    $('#invoiceNumberInput')?.addEventListener('change', ()=>{
-      if (invoiceLocked) return;
-      actions.editSettlement(s.id, (draft)=>{
-        const raw = String($('#invoiceNumberInput').value || '').trim();
-        draft.invoiceNumber = raw;
-      });
-      renderSheet();
-    });
     $('#sheetBody').querySelectorAll('[data-logpick]').forEach(cb=>{
       cb.addEventListener('change', ()=>{
         const logId = cb.getAttribute('data-logpick');
