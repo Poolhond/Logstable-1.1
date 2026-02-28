@@ -98,6 +98,14 @@ function formatDatePretty(isoDate){
   const yy = String(y).slice(-2);
   return `${dayNames[dt.getDay()]} ${d} ${monthNames[m - 1]} ${yy}`;
 }
+function formatDateNoWeekday(isoDate){
+  if (!isoDate) return "";
+  const [y, m, d] = String(isoDate).split("-").map(Number);
+  if (!y || !m || !d) return String(isoDate);
+  const monthNames = ["jan","feb","mrt","apr","mei","jun","jul","aug","sep","okt","nov","dec"];
+  const yy = String(y).slice(-2);
+  return `${d} ${monthNames[m - 1]} ${yy}`;
+}
 function formatLogDatePretty(isoDate){
   return formatDatePretty(isoDate);
 }
@@ -2731,21 +2739,51 @@ function renderSettlements(){
     .map(s=>{
       const pay = settlementPaymentState(s);
       const visual = getSettlementVisualState(s);
+      const calculated = isSettlementCalculated(s);
+      const flags = getSettlementPaymentFlags(s);
       const linkedLogs = (s.logIds||[])
         .map(id => state.logs.find(l => l.id === id))
         .filter(Boolean);
       const totalMinutes = Math.floor(linkedLogs.reduce((acc, log) => acc + sumWorkMs(log), 0) / 60000);
-      const grand = round2(pay.invoiceTotal + pay.cashTotal);
+      const invoiceAmt = round2(pay.invoiceTotal);
+      const cashAmt = round2(pay.cashTotal);
+      const showInvoice = calculated && invoiceAmt > 0;
+      const showCash = calculated && cashAmt > 0;
 
       return `
         <div class="item ${visual.accentClass}" data-open-settlement="${s.id}">
           <div class="item-main">
-            <div class="item-title">${esc(cname(s.customerId))}</div>
+            <div class="item-title-row">
+              <div class="item-title">${esc(cname(s.customerId))}</div>
+              ${ (calculated && settlementHasInvoiceComponent(s, { invoiceTotal: invoiceAmt, cashTotal: cashAmt }) && String(s.invoiceNumber||"").trim())
+                  ? `<span class="pill pill-neutral settlement-inv-pill">${esc(String(s.invoiceNumber).trim().toUpperCase())}</span>`
+                  : ``
+              }
+            </div>
             <div class="meta-text" style="margin-top:2px;">
-              ${esc(formatDatePretty(s.date))} · ${(s.logIds||[]).length} logs · ${formatDurationCompact(totalMinutes)}
+              ${esc(formatDateNoWeekday(s.date))} · ${(s.logIds||[]).length} logs · ${formatDurationCompact(totalMinutes)}
             </div>
           </div>
-          <div class="amount-prominent">${formatMoneyEUR(grand)}</div>
+
+          ${!calculated ? `` : `
+            <div class="settlement-amounts">
+              ${showInvoice ? `
+                <button class="amount-chip ${flags.invoicePaid ? "is-paid" : "is-open"}"
+                        data-toggle-paid="invoice" data-settlement-id="${s.id}">
+                  <span class="amount-icon">💳</span>
+                  <span class="amount-val">${formatMoneyEUR(invoiceAmt)}</span>
+                </button>
+              ` : ``}
+
+              ${showCash ? `
+                <button class="amount-chip ${flags.cashPaid ? "is-paid" : "is-open"}"
+                        data-toggle-paid="cash" data-settlement-id="${s.id}">
+                  <span class="amount-icon">🪙</span>
+                  <span class="amount-val">${formatMoneyEUR(cashAmt)}</span>
+                </button>
+              ` : ``}
+            </div>
+          `}
         </div>
       `;
     }).join("");
@@ -2759,6 +2797,25 @@ function renderSettlements(){
 
   el.querySelectorAll("[data-open-settlement]").forEach(x=>{
     x.addEventListener("click", ()=> openSheet("settlement", x.getAttribute("data-open-settlement")));
+  });
+
+  el.querySelectorAll("[data-toggle-paid]").forEach(btn=>{
+    btn.addEventListener("click", (e)=>{
+      e.preventDefault();
+      e.stopPropagation();
+
+      const id = btn.getAttribute("data-settlement-id");
+      const kind = btn.getAttribute("data-toggle-paid");
+      const s = state.settlements.find(x => x.id === id);
+      if (!s) return;
+
+      if (kind === "invoice") s.invoicePaid = !Boolean(s.invoicePaid);
+      if (kind === "cash") s.cashPaid = !Boolean(s.cashPaid);
+
+      syncSettlementStatus(s);
+      saveState(state);
+      renderSettlements();
+    });
   });
 }
 
