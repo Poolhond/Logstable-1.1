@@ -1689,6 +1689,15 @@ h2{
   align-items:baseline;
   gap:8px;
 }
+.settlement-title-row{
+  min-width:0;
+}
+.settlement-name{
+  min-width:0;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
 .settlement-invoice-text{
   margin-left:auto;
   white-space:nowrap;
@@ -1709,7 +1718,7 @@ h2{
 .amount-inline{
   display:inline-flex;
   align-items:center;
-  gap:8px;
+  justify-content:flex-end;
   padding:4px 0;
   background:transparent;
   border:0;
@@ -1729,6 +1738,26 @@ h2{
   opacity:0.95;
 }
 
+.settlement-row-grid{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 92px 92px;
+  column-gap:10px;
+  width:100%;
+  align-items:center;
+}
+
+.settlement-col{
+  min-height:28px;
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+}
+
+.settlement-col .amount-inline{
+  width:100%;
+  text-align:right;
+}
+
 .amount-inline.is-open{
   color: var(--status-calculated-border);
 }
@@ -1746,6 +1775,16 @@ h2{
   font-size:20px;
   font-weight:800;
   line-height:1.2;
+  padding:0 4px 8px;
+}
+
+.settlement-outstanding-breakdown{
+  display:flex;
+  justify-content:flex-end;
+  gap:18px;
+  color:var(--text);
+  font-size:16px;
+  font-weight:700;
   padding:0 4px 8px;
 }
 
