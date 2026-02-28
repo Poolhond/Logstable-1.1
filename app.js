@@ -1718,6 +1718,7 @@ const ui = {
   navStack: [{ view: "logs" }],
   transition: null,
   logDetailSegmentEditId: null,
+  logDateEditSnapshot: {},
   activeLogQuickAdd: {
     open: false,
     productId: null,
@@ -1783,6 +1784,7 @@ const actions = {
   },
   deleteLog(logId){
     state.logs = state.logs.filter(x => x.id !== logId);
+    delete ui.logDateEditSnapshot[logId];
     if (state.activeLogId === logId) state.activeLogId = null;
     for (const s of state.settlements){
       s.logIds = (s.logIds || []).filter(id => id !== logId);
@@ -1922,7 +1924,33 @@ const actions = {
 };
 
 function toggleEditLog(logId){
+  const isLeavingEdit = state.ui.editLogId === logId;
+  if (!isLeavingEdit){
+    const log = state.logs.find(item => item.id === logId);
+    if (log) ui.logDateEditSnapshot[logId] = log.date || "";
+  } else {
+    delete ui.logDateEditSnapshot[logId];
+  }
   actions.setEditLog(logId);
+}
+
+function cancelLogDateEditIfNeeded(){
+  const active = currentView();
+  if (active.view !== "logDetail") return;
+  const logId = active.id;
+  if (state.ui.editLogId !== logId) return;
+  const originalDate = ui.logDateEditSnapshot[logId];
+  if (originalDate == null) return;
+
+  const log = state.logs.find(item => item.id === logId);
+  if (log && log.date !== originalDate){
+    log.date = originalDate;
+    saveState(state);
+  }
+
+  state.ui.editLogId = null;
+  ui.logDetailSegmentEditId = null;
+  delete ui.logDateEditSnapshot[logId];
 }
 
 function preferredWorkProduct(){
@@ -2098,6 +2126,7 @@ function pushView(viewState){
 
 function popView(){
   if (ui.navStack.length <= 1) return;
+  cancelLogDateEditIfNeeded();
   ui.transition = "pop";
   ui.navStack.pop();
   render();
@@ -2105,6 +2134,7 @@ function popView(){
 
 function popViewInstant(){
   if (ui.navStack.length <= 1) return;
+  cancelLogDateEditIfNeeded();
   ui.transition = null;
   ui.navStack.pop();
   render();
@@ -3563,13 +3593,22 @@ function renderLogSheet(id){
     `;
   }
 
-  function renderLogHeader(currentLog){
+  function renderLogHeader(currentLog, editing){
     const prettyDate = formatLogDatePretty(currentLog.date || "");
     const startTime = getStartTime(currentLog);
+    const dateInputValue = String(currentLog.date || "").slice(0, 10);
+    const dateHeader = editing
+      ? `
+        <div class="log-detail-date-edit" role="group" aria-label="Datum bewerken">
+          <svg class="icon log-detail-date-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M8 3v4M16 3v4M3 11h18" stroke-linecap="round"></path></svg>
+          <input id="logDateInput" class="log-detail-date-input" type="date" value="${esc(dateInputValue)}" max="${todayISO()}" />
+        </div>
+      `
+      : `<div class="log-detail-header-main">${esc(prettyDate || currentLog.date || "—")}</div>`;
 
     return `
       <section class="compact-section log-detail-header">
-        <div class="log-detail-header-main">${esc(prettyDate || currentLog.date || "—")}</div>
+        ${dateHeader}
         <div class="log-detail-header-sub mono">${esc(startTime)}</div>
       </section>
     `;
@@ -3587,7 +3626,7 @@ function renderLogSheet(id){
 
   $("#sheetBody").innerHTML = `
     <div class="stack log-detail-compact">
-      ${renderLogHeader(log)}
+      ${renderLogHeader(log, isEditing)}
       ${renderSegments(log, isEditing)}
 
       <section class="compact-section stack">
@@ -3650,6 +3689,20 @@ function renderLogSheet(id){
   $("#logNote").addEventListener("change", ()=>{
     actions.editLog(log.id, (draft)=>{
       draft.note = ($("#logNote").value||"").trim();
+    });
+  });
+
+  $("#logDateInput")?.addEventListener("change", (event)=>{
+    const nextDate = event.target?.value;
+    if (!nextDate) return;
+    if (nextDate > todayISO()) return;
+
+    const parsed = new Date(nextDate);
+    const parsedIso = Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+    if (!parsedIso) return;
+
+    actions.editLog(log.id, (draft)=>{
+      draft.date = parsedIso;
     });
   });
 

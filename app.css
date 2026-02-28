@@ -5,6 +5,7 @@
   --text:#e9eef6;
   --muted:rgba(233,238,246,.68);
   --border:rgba(233,238,246,.10);
+  --line:var(--border);
   --accent:#00a05a;
   --danger:#ff4d4d;
   --chrome-bg: #0b0f14;
@@ -35,6 +36,7 @@ body[data-theme="day"]{
   --text:#182131;
   --muted:rgba(24,33,49,.68);
   --border:rgba(24,33,49,.14);
+  --line:var(--border);
   --chrome-bg: #f4f7fb;
   --topbar-bg: rgba(244,247,251,.92);
   --topsubtitle: rgba(24,33,49,.78);
@@ -1127,6 +1129,47 @@ body:not([data-view="meer"]) #moreActionBar{
   margin-top:2px;
   font-size:13px;
   color:var(--muted);
+}
+
+
+.log-detail-date-edit{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  max-width:160px;
+  margin-top:2px;
+}
+
+.log-detail-date-icon{
+  width:15px;
+  height:15px;
+  color:var(--muted);
+  flex:0 0 auto;
+}
+
+.log-detail-date-input{
+  width:100%;
+  max-width:160px;
+  font-size:22px;
+  font-weight:700;
+  line-height:1.2;
+  color:var(--text);
+  background:transparent;
+  border:0;
+  border-bottom:1px solid var(--line);
+  border-radius:0;
+  box-shadow:none;
+  padding:0 0 1px;
+  min-height:0;
+}
+
+.log-detail-date-input:focus{
+  outline:none;
+  border-bottom-color:var(--text);
+}
+
+.log-detail-date-input::-webkit-date-and-time-value{
+  text-align:left;
 }
 
 .log-detail-compact .compact-section:last-child{
