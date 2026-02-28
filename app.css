@@ -1686,19 +1686,24 @@ h2{
 }
 .item-title-row{
   display:flex;
-  align-items:center;
+  align-items:baseline;
   gap:8px;
 }
-.settlement-inv-pill{
+.settlement-invoice-text{
   margin-left:auto;
   white-space:nowrap;
+  color:var(--muted);
+  font-size:12px;
+  font-weight:600;
 }
 
 .settlement-amounts{
   display:flex;
-  flex-direction:column;
+  flex-direction:row;
   align-items:flex-end;
-  gap:6px;
+  gap:16px;
+  justify-content:flex-end;
+  flex-shrink:0;
 }
 
 .amount-inline{
@@ -1714,6 +1719,7 @@ h2{
   font-variant-numeric: tabular-nums;
   white-space:nowrap;
   cursor:pointer;
+  line-height:1;
 }
 
 .amount-inline .icon{
@@ -1733,6 +1739,14 @@ h2{
 
 .amount-inline:active{
   transform:scale(0.98);
+}
+
+.settlement-outstanding-total{
+  color:var(--accent);
+  font-size:20px;
+  font-weight:800;
+  line-height:1.2;
+  padding:0 4px 8px;
 }
 
 .amount-chip{

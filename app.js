@@ -2788,6 +2788,14 @@ function renderSettlements(){
     return Number.isFinite(parsed) ? parsed : null;
   };
 
+  const totalOutstanding = round2(state.settlements.reduce((sum, settlement)=>{
+    const pay = settlementPaymentState(settlement);
+    const flags = getSettlementPaymentFlags(settlement);
+    const invoiceOutstanding = (!flags.invoicePaid && pay.invoiceTotal > 0) ? Number(pay.invoiceTotal || 0) : 0;
+    const cashOutstanding = (!flags.cashPaid && pay.cashTotal > 0) ? Number(pay.cashTotal || 0) : 0;
+    return sum + invoiceOutstanding + cashOutstanding;
+  }, 0));
+
   const list = [...state.settlements]
     .filter((s)=>{
       const status = getSettlementVisualState(s).state;
@@ -2850,7 +2858,7 @@ function renderSettlements(){
             <div class="item-title-row">
               <div class="item-title">${esc(cname(s.customerId))}</div>
               ${ (calculated && settlementHasInvoiceComponent(s, { invoiceTotal: invoiceAmt, cashTotal: cashAmt }) && String(s.invoiceNumber||"").trim())
-                  ? `<span class="pill pill-neutral settlement-inv-pill">${esc(String(s.invoiceNumber).trim().toUpperCase())}</span>`
+                  ? `<span class="settlement-invoice-text mono">${esc(String(s.invoiceNumber).trim().toUpperCase())}</span>`
                   : ``
               }
             </div>
@@ -2887,6 +2895,7 @@ function renderSettlements(){
   el.innerHTML = `
     <div class="stack">
       <div class="geld-header"><span class="geld-header-title">Afrekeningen</span></div>
+      <div class="settlement-outstanding-total mono tabular">Openstaand: ${formatMoneyEUR0(totalOutstanding)}</div>
       <div class="flat-list">${list || `<div class="meta-text" style="padding:8px 4px;">Nog geen afrekeningen.</div>`}</div>
     </div>
   `;
