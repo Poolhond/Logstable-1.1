@@ -2787,6 +2787,10 @@ function renderSettlements(){
     const parsed = Number(digits.join(""));
     return Number.isFinite(parsed) ? parsed : null;
   };
+  const invoiceIcon = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><rect x="2.5" y="5.5" width="19" height="13" rx="2.5"></rect><path d="M2.5 10h19" stroke-linecap="round"></path><path d="M7 14.5h4" stroke-linecap="round"></path></svg>`;
+  const cashIcon = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><circle cx="8.5" cy="12" r="3.5"></circle><circle cx="15.5" cy="12" r="3.5"></circle><path d="M12 8.5v7" stroke-linecap="round"></path></svg>`;
+  const greenIcon = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 19c-3.5 0-6-2.6-6-6.2 0-3.8 2.8-6.6 6.9-7.8.8 4.7 3.8 6.7 5.1 8.8 1.3 2.2-.5 5.2-6 5.2z" stroke-linejoin="round"></path><path d="M12 19v-6" stroke-linecap="round"></path></svg>`;
+  const productIcon = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 8l-8-4-8 4 8 4 8-4Z" stroke-linejoin="round"></path><path d="M4 8v8l8 4 8-4V8" stroke-linejoin="round"></path><path d="M12 12v8" stroke-linecap="round"></path></svg>`;
 
   const totalOutstanding = round2(state.settlements.reduce((sum, settlement)=>{
     const pay = settlementPaymentState(settlement);
@@ -2845,46 +2849,58 @@ function renderSettlements(){
         .map(id => state.logs.find(l => l.id === id))
         .filter(Boolean);
       const totalMinutes = Math.floor(linkedLogs.reduce((acc, log) => acc + sumWorkMs(log), 0) / 60000);
+      const logbookTotals = settlementLogbookTotals(s);
       const invoiceAmt = round2(pay.invoiceTotal);
       const cashAmt = round2(pay.cashTotal);
       const showInvoice = calculated && invoiceAmt > 0;
       const showCash = calculated && cashAmt > 0;
+      const invoiceToggleAttrs = showInvoice
+        ? `data-toggle-paid="invoice" data-settlement-id="${s.id}" aria-label="Factuur ${flags.invoicePaid ? "betaald" : "open"}"`
+        : `disabled aria-hidden="true" tabindex="-1"`;
+      const cashToggleAttrs = showCash
+        ? `data-toggle-paid="cash" data-settlement-id="${s.id}" aria-label="Cash ${flags.cashPaid ? "betaald" : "open"}"`
+        : `disabled aria-hidden="true" tabindex="-1"`;
+      const detailItems = [
+        esc(formatDateNoWeekday(s.date)),
+        `${(s.logIds||[]).length} logs`,
+        formatDurationCompact(totalMinutes)
+      ];
+      if (logbookTotals.totalGreenUnits > 0){
+        detailItems.push(`<span class="settlement-detail-item settlement-detail-item--green">${greenIcon}<span>${esc(String(formatQuickQty(logbookTotals.totalGreenUnits)))}</span></span>`);
+      }
+      if (logbookTotals.totalExtraProducts > 0){
+        detailItems.push(`<span class="settlement-detail-item">${productIcon}<span>${esc(String(formatQuickQty(logbookTotals.totalExtraProducts)))}</span></span>`);
+      }
 
       return `
         <div class="item ${visual.accentClass}" data-open-settlement="${s.id}">
-          <div class="settlement-row-grid">
-            <div class="item-main">
-              <div class="item-title-row settlement-title-row">
-                <div class="item-title settlement-name" title="${esc(cname(s.customerId))}">${esc(cname(s.customerId))}</div>
-                ${ (calculated && settlementHasInvoiceComponent(s, { invoiceTotal: invoiceAmt, cashTotal: cashAmt }) && String(s.invoiceNumber||"").trim())
+          <div class="settlement-card-grid">
+            <div class="settlement-row-grid">
+              <div class="item-main">
+                <div class="item-title-row settlement-title-row">
+                  <div class="item-title settlement-name" title="${esc(cname(s.customerId))}">${esc(cname(s.customerId))}</div>
+                  ${String(s.invoiceNumber||"").trim()
                     ? `<span class="settlement-invoice-text mono">${esc(String(s.invoiceNumber).trim().toUpperCase())}</span>`
                     : ``
-                }
+                  }
+                </div>
               </div>
-              <div class="meta-text settlement-meta" style="margin-top:2px;">
-                ${esc(formatDateNoWeekday(s.date))} · ${(s.logIds||[]).length} logs · ${formatDurationCompact(totalMinutes)}
+
+              <div class="settlement-col settlement-col--invoice">
+                <button class="amount-inline ${flags.invoicePaid ? "is-paid" : "is-open"} ${showInvoice ? "" : "is-empty"}"
+                        ${invoiceToggleAttrs}>
+                  <span class="amount-inline-content mono tabular">${invoiceIcon}<span class="amount-val">${showInvoice ? formatMoneyEUR0(invoiceAmt) : ""}</span></span>
+                </button>
+              </div>
+
+              <div class="settlement-col settlement-col--cash">
+                <button class="amount-inline ${flags.cashPaid ? "is-paid" : "is-open"} ${showCash ? "" : "is-empty"}"
+                        ${cashToggleAttrs}>
+                  <span class="amount-inline-content mono tabular">${cashIcon}<span class="amount-val">${showCash ? formatMoneyEUR0(cashAmt) : ""}</span></span>
+                </button>
               </div>
             </div>
-
-            <div class="settlement-col settlement-col--invoice">
-              ${showInvoice ? `
-                <button class="amount-inline ${flags.invoicePaid ? "is-paid" : "is-open"}"
-                        data-toggle-paid="invoice" data-settlement-id="${s.id}"
-                        aria-label="Factuur ${flags.invoicePaid ? "betaald" : "open"}">
-                  <span class="amount-val mono tabular">${formatMoneyEUR0(invoiceAmt)}</span>
-                </button>
-              ` : ``}
-            </div>
-
-            <div class="settlement-col settlement-col--cash">
-              ${showCash ? `
-                <button class="amount-inline ${flags.cashPaid ? "is-paid" : "is-open"}"
-                        data-toggle-paid="cash" data-settlement-id="${s.id}"
-                        aria-label="Cash ${flags.cashPaid ? "betaald" : "open"}">
-                  <span class="amount-val mono tabular">${formatMoneyEUR0(cashAmt)}</span>
-                </button>
-              ` : ``}
-            </div>
+            <div class="meta-text settlement-meta-row">${detailItems.join(" · ")}</div>
           </div>
         </div>
       `;
@@ -2895,8 +2911,12 @@ function renderSettlements(){
       <div class="geld-header"><span class="geld-header-title">Afrekeningen</span></div>
       <div class="settlement-outstanding-total mono tabular">Openstaand: ${formatMoneyEUR0(totalOutstanding)}</div>
       <div class="settlement-outstanding-breakdown mono tabular">
-        <span>💳 ${formatMoneyEUR0(totalInvoiceOutstanding)}</span>
-        <span>🪙 ${formatMoneyEUR0(totalCashOutstanding)}</span>
+        <div class="settlement-outstanding-col">
+          <span class="settlement-outstanding-content ${totalInvoiceOutstanding > 0 ? "" : "is-hidden"}">${invoiceIcon}<span>${totalInvoiceOutstanding > 0 ? formatMoneyEUR0(totalInvoiceOutstanding) : ""}</span></span>
+        </div>
+        <div class="settlement-outstanding-col">
+          <span class="settlement-outstanding-content ${totalCashOutstanding > 0 ? "" : "is-hidden"}">${cashIcon}<span>${totalCashOutstanding > 0 ? formatMoneyEUR0(totalCashOutstanding) : ""}</span></span>
+        </div>
       </div>
       <div class="flat-list">${list || `<div class="meta-text" style="padding:8px 4px;">Nog geen afrekeningen.</div>`}</div>
     </div>
