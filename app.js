@@ -1463,10 +1463,15 @@ function computeSettlementFromLogsInState(sourceState, customerId, logIds){
     workMs += sumWorkMs(log);
     for (const it of (log.items||[])){
       const key = it.productId || "free";
-      if (!itemMap.has(key)) itemMap.set(key, { qty:0, unitPrice: Number(it.unitPrice)||0 });
+      const raw = Number(it.unitPrice) || 0;
+      const prod = key === "free" ? null : sourceState.products.find(p => p.id === key);
+      const fallback = Number(prod?.unitPrice) || 0;
+      const effective = raw > 0 ? raw : (fallback > 0 ? fallback : 0);
+      if (!itemMap.has(key)) itemMap.set(key, { qty:0, unitPrice: effective });
       const cur = itemMap.get(key);
       cur.qty += Number(it.qty)||0;
-      cur.unitPrice = Number(it.unitPrice)||cur.unitPrice;
+      if (raw > 0) cur.unitPrice = raw;
+      else if ((Number(cur.unitPrice) || 0) <= 0 && fallback > 0) cur.unitPrice = fallback;
     }
   }
   const hours = roundToNearestHalf(workMs / 3600000);
@@ -1530,11 +1535,14 @@ function computeBaseTotals(settlement, sourceState = state){
     if (log.date > baseDate) baseDate = log.date;
     for (const item of (log.items || [])){
       const key = item.productId || "free";
+      const raw = Number(item.unitPrice) || 0;
+      const prod = key === "free" ? null : sourceState.products.find(p => p.id === key);
+      const fallback = Number(prod?.unitPrice) || 0;
+      const effective = raw > 0 ? raw : (fallback > 0 ? fallback : 0);
       if (!productMap.has(key)){
-        const prod = sourceState.products.find(p => p.id === key);
         productMap.set(key, {
           qty: 0,
-          unitPrice: Number(item.unitPrice) || 0,
+          unitPrice: effective,
           name: prod?.name || item.name || item.description || "Product",
           unit: prod?.unit || "keer",
           vatRate: prod?.vatRate ?? 0.21
@@ -1542,11 +1550,44 @@ function computeBaseTotals(settlement, sourceState = state){
       }
       const cur = productMap.get(key);
       cur.qty += Number(item.qty) || 0;
-      cur.unitPrice = Number(item.unitPrice) || cur.unitPrice;
+      if (raw > 0) cur.unitPrice = raw;
+      else if ((Number(cur.unitPrice) || 0) <= 0 && fallback > 0) cur.unitPrice = fallback;
     }
   }
   const baseWorkHours = roundToNearestHalf(workMs / 3600000);
   return { baseWorkHours, baseDate, productMap };
+}
+
+function runGreenAllocationUnitPriceSanityCheck(sourceState = state){
+  const groen = (sourceState.products || []).find(p => (p.name || "").toLowerCase() === "groen");
+  if (!groen?.id) return;
+  const testLogId = `sanity-log-${uid()}`;
+  const settlement = { id: `sanity-settlement-${uid()}`, logIds: [testLogId], allocations: {} };
+  const checkState = {
+    ...sourceState,
+    logs: [
+      ...(sourceState.logs || []),
+      {
+        id: testLogId,
+        customerId: null,
+        date: todayISO(),
+        createdAt: now(),
+        closedAt: null,
+        segments: [],
+        items: [{ productId: groen.id, qty: 2, unitPrice: 0 }]
+      }
+    ]
+  };
+  buildAllocationsFromLogs(settlement, checkState);
+  const groenAlloc = settlement.allocations?.[`p:${groen.id}`];
+  const totals = getTotalsFromAllocations(settlement);
+  if (!groenAlloc) console.warn("Sanity check failed: Groen allocation missing.");
+  if ((Number(groenAlloc?.unitPrice) || 0) !== (Number(groen.unitPrice) || 0)){
+    console.warn("Sanity check failed: Groen unitPrice fallback not applied.", { allocation: groenAlloc, product: groen });
+  }
+  if ((Number(totals.invoiceSubtotal) || 0) <= 0){
+    console.warn("Sanity check failed: Groen not included in settlement totals.", { totals, allocation: groenAlloc });
+  }
 }
 
 /**
@@ -4496,6 +4537,7 @@ window.addEventListener("resize", ()=>{
 setTab("logs");
 render();
 setBottomBarHeights({ statusVisible: false });
+runGreenAllocationUnitPriceSanityCheck();
 
 // Timer tick: update active timer display every 15 seconds
 setInterval(()=>{
