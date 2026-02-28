@@ -245,10 +245,26 @@ function openTextConfirmModal({ title, message, expectedText, confirmText = "Def
 function defaultState(){
   return {
     schemaVersion: 1,
-    settings: { hourlyRate: 38, vatRate: 0.21, theme: "night" },
+    settings: {
+      hourlyRate: 38,
+      vatRate: 0.21,
+      theme: "night",
+      user: {
+        name: "",
+        street: "",
+        postalCity: "",
+        btwNummer: "",
+        iban: "",
+        bic: "",
+        rpr: "",
+        email: "",
+        gsm: "",
+        logoBase64: ""
+      }
+    },
     customers: [
-      { id: uid(), nickname:"Jules", name:"", address:"Heverlee, Leuven", createdAt: now() },
-      { id: uid(), nickname:"Noor", name:"", address:"Kessel-Lo, Leuven", createdAt: now() },
+      { id: uid(), nickname:"Jules", name:"", address:"Heverlee, Leuven", kboNummer:"", paymentTerms:"Contant", customHourlyRate:null, createdAt: now() },
+      { id: uid(), nickname:"Noor", name:"", address:"Kessel-Lo, Leuven", kboNummer:"", paymentTerms:"Contant", customHourlyRate:null, createdAt: now() },
     ],
     products: [
       { id: uid(), name:"Werk", unit:"uur", unitPrice:38, vatRate:0.21, defaultBucket:"invoice" },
@@ -299,6 +315,14 @@ function migrateState(st){
   }
 
   if (!Number.isInteger(st.schemaVersion) || st.schemaVersion < 1) st.schemaVersion = 1;
+  if (!st.settings || typeof st.settings !== "object" || Array.isArray(st.settings)) st.settings = {};
+  if (!st.settings.user) st.settings.user = {};
+  if (!Array.isArray(st.customers)) st.customers = [];
+  for (const customer of st.customers){
+    if (!("kboNummer" in customer)) customer.kboNummer = "";
+    if (!("paymentTerms" in customer)) customer.paymentTerms = "Contant";
+    if (!("customHourlyRate" in customer)) customer.customHourlyRate = null;
+  }
   return st;
 }
 
@@ -415,6 +439,22 @@ function loadState(){
   if (!("hourlyRate" in st.settings)) st.settings.hourlyRate = 38;
   if (!("vatRate" in st.settings)) st.settings.vatRate = 0.21;
   if (!("theme" in st.settings)) st.settings.theme = "night";
+  if (!st.settings.user || typeof st.settings.user !== "object" || Array.isArray(st.settings.user)) st.settings.user = {};
+  const userFieldDefaults = {
+    name: "",
+    street: "",
+    postalCity: "",
+    btwNummer: "",
+    iban: "",
+    bic: "",
+    rpr: "",
+    email: "",
+    gsm: "",
+    logoBase64: ""
+  };
+  for (const [key, fallback] of Object.entries(userFieldDefaults)){
+    if (!(key in st.settings.user)) st.settings.user[key] = fallback;
+  }
   st.settings.theme = normalizeTheme(st.settings.theme);
   if (!st.customers) st.customers = [];
   if (!st.products) st.products = [];
@@ -425,6 +465,9 @@ function loadState(){
 
   for (const c of st.customers){
     if (!("demo" in c)) c.demo = false;
+    if (!("kboNummer" in c)) c.kboNummer = "";
+    if (!("paymentTerms" in c)) c.paymentTerms = "Contant";
+    if (!("customHourlyRate" in c)) c.customHourlyRate = null;
   }
   ensureUniqueCustomerNicknames(st);
   for (const p of st.products){
@@ -1161,6 +1204,13 @@ function countGreenItems(log){
   }, 0));
 }
 function getCustomer(id){ return state.customers.find(c => c.id === id) || null; }
+
+function getCustomerHourlyRate(customerId, sourceState = state){
+  const customer = (sourceState.customers || []).find(c => c.id === customerId);
+  const customRate = Number(customer?.customHourlyRate || 0);
+  if (customRate > 0) return customRate;
+  return Number(sourceState.settings?.hourlyRate || 38);
+}
 function cname(id){ const c=getCustomer(id); return c ? (c.nickname || c.name || "Klant") : "Klant"; }
 function getProduct(id){ return state.products.find(p => p.id === id) || null; }
 function pname(id){ const p=getProduct(id); return p ? p.name : "Product"; }
@@ -1500,7 +1550,7 @@ function computeSettlementFromLogsInState(sourceState, customerId, logIds){
       description: labourProduct?.name || "Werk",
       unit: labourProduct?.unit || "uur",
       qty: hours,
-      unitPrice: Number(sourceState.settings.hourlyRate||38),
+      unitPrice: getCustomerHourlyRate(customerId, sourceState),
       vatRate: labourProduct?.vatRate ?? 0.21,
       bucket: "invoice"
     });
@@ -1612,7 +1662,7 @@ function buildAllocationsFromLogs(settlement, sourceState = state){
     const n = (p.name || "").toLowerCase();
     return n === "werk" || n === "arbeid";
   });
-  const hourlyRate = Number(sourceState.settings.hourlyRate || 38);
+  const hourlyRate = getCustomerHourlyRate(settlement.customerId, sourceState);
   const oldAllocations = settlement.allocations || null;
   const oldLines = settlement.lines || [];
   const newAllocations = {};
@@ -1882,6 +1932,16 @@ const actions = {
     state.settings.theme = normalizeTheme(theme);
     commit();
   },
+  saveUserProfile(patch){
+    state.settings.user = state.settings.user || {};
+    const fields = ["name", "street", "postalCity", "btwNummer", "iban", "bic", "rpr", "email", "gsm", "logoBase64"];
+    for (const field of fields){
+      if (field in patch){
+        state.settings.user[field] = String(patch[field] ?? "").trim();
+      }
+    }
+    commit();
+  },
   setTheme(theme){
     state.settings.theme = normalizeTheme(theme);
     commit();
@@ -1904,7 +1964,14 @@ const actions = {
     }
     const c = state.customers.find(x => x.id === customerId);
     if (!c) return { ok: false, error: "not_found" };
-    Object.assign(c, patch);
+    const normalizedPatch = { ...patch };
+    if ("kboNummer" in normalizedPatch) normalizedPatch.kboNummer = String(normalizedPatch.kboNummer || "").trim();
+    if ("paymentTerms" in normalizedPatch) normalizedPatch.paymentTerms = String(normalizedPatch.paymentTerms || "").trim() || "Contant";
+    if ("customHourlyRate" in normalizedPatch){
+      const raw = Number(normalizedPatch.customHourlyRate);
+      normalizedPatch.customHourlyRate = Number.isFinite(raw) && raw > 0 ? round2(raw) : null;
+    }
+    Object.assign(c, normalizedPatch);
     commit();
     return { ok: true };
   },
@@ -2667,8 +2734,44 @@ function _attachSettingsHandlers(){
     const vatPct = Number(String($("#settingVat").value).replace(",", ".") || "0");
 
     actions.updateSettings(hourly, vatPct / 100);
+
+    actions.saveUserProfile({
+      name: $("#userName")?.value || "",
+      street: $("#userStreet")?.value || "",
+      postalCity: $("#userPostalCity")?.value || "",
+      btwNummer: $("#userBtw")?.value || "",
+      iban: $("#userIban")?.value || "",
+      bic: $("#userBic")?.value || "",
+      rpr: $("#userRpr")?.value || "",
+      email: $("#userEmail")?.value || "",
+      gsm: $("#userGsm")?.value || ""
+    });
     alert("Instellingen opgeslagen.");
   };
+
+  $("#userLogoInput")?.addEventListener("change", (event)=>{
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const logoBase64 = String(reader.result || "");
+      state.settings.user = state.settings.user || {};
+      state.settings.user.logoBase64 = logoBase64;
+      commit();
+      renderSettingsSheet();
+    };
+    reader.onerror = ()=>{
+      alert("Logo kon niet worden gelezen.");
+    };
+    reader.readAsDataURL(file);
+  });
+
+  $("#removeLogoBtn")?.addEventListener("click", ()=>{
+    state.settings.user = state.settings.user || {};
+    state.settings.user.logoBase64 = "";
+    commit();
+    renderSettingsSheet();
+  });
 
   $("#fillDemoBtn").onclick = ()=>{
     if (!confirmAction("Demo data toevoegen voor 24 maanden (2 jaar)?")) return;
@@ -3171,7 +3274,7 @@ function renderCustomersSheet(){
   `;
 
   body.querySelector("#btnNewCustomer")?.addEventListener("click", ()=>{
-    const c = actions.addCustomer({ id: uid(), nickname:"", name:"", address:"", createdAt: now() });
+    const c = actions.addCustomer({ id: uid(), nickname:"", name:"", address:"", kboNummer:"", paymentTerms:"Contant", customHourlyRate:null, createdAt: now() });
     openSheet("customer", c.id);
   });
 
@@ -3219,9 +3322,66 @@ function renderSettingsSheet(){
     logs: state.logs.filter(l => l.demo).length,
     settlements: state.settlements.filter(a => a.demo).length,
   };
+  const user = state.settings.user || {};
+  const hasLogo = Boolean(String(user.logoBase64 || "").trim());
 
   body.innerHTML = `
     <div class="stack">
+      <div class="card stack">
+        <div class="item-title">Mijn gegevens</div>
+        <div class="row">
+          <div style="flex:1; min-width:220px;">
+            <label>Naam</label>
+            <input id="userName" value="${esc(user.name || "")}" />
+          </div>
+          <div style="flex:1; min-width:220px;">
+            <label>Straat + nr</label>
+            <input id="userStreet" value="${esc(user.street || "")}" />
+          </div>
+        </div>
+        <div class="row">
+          <div style="flex:1; min-width:220px;">
+            <label>Postcode + stad</label>
+            <input id="userPostalCity" value="${esc(user.postalCity || "")}" />
+          </div>
+          <div style="flex:1; min-width:220px;">
+            <label>BTW-nummer</label>
+            <input id="userBtw" value="${esc(user.btwNummer || "")}" />
+          </div>
+        </div>
+        <div class="row">
+          <div style="flex:1; min-width:220px;">
+            <label>IBAN</label>
+            <input id="userIban" value="${esc(user.iban || "")}" />
+          </div>
+          <div style="flex:1; min-width:220px;">
+            <label>BIC</label>
+            <input id="userBic" value="${esc(user.bic || "")}" />
+          </div>
+        </div>
+        <div class="row">
+          <div style="flex:1; min-width:220px;">
+            <label>RPR</label>
+            <input id="userRpr" value="${esc(user.rpr || "")}" />
+          </div>
+          <div style="flex:1; min-width:220px;">
+            <label>E-mail</label>
+            <input id="userEmail" value="${esc(user.email || "")}" />
+          </div>
+        </div>
+        <div>
+          <label>GSM</label>
+          <input id="userGsm" value="${esc(user.gsm || "")}" />
+        </div>
+      </div>
+
+      <div class="card stack">
+        <div class="item-title">Bedrijfslogo</div>
+        <img id="userLogoPreview" src="${hasLogo ? esc(user.logoBase64 || "") : ""}" alt="Bedrijfslogo" style="max-width:180px; border-radius:10px; ${hasLogo ? "display:block;" : "display:none;"}" />
+        <input id="userLogoInput" type="file" accept="image/png,image/jpeg" />
+        <button class="btn danger" id="removeLogoBtn" style="${hasLogo ? "" : "display:none;"}">Verwijder logo</button>
+      </div>
+
       <div class="card stack">
         <div class="item-title">Algemeen</div>
         <div class="row">
@@ -3333,6 +3493,20 @@ function renderCustomerSheet(id){
           <label>Adres</label>
           <input id="cAddr" value="${esc(c.address||"")}" />
         </div>
+        <div class="row">
+          <div style="flex:1; min-width:220px;">
+            <label>KBO / BTW-nummer</label>
+            <input id="cKbo" value="${esc(c.kboNummer||"")}" />
+          </div>
+          <div style="flex:1; min-width:220px;">
+            <label>Betalingsvoorwaarden</label>
+            <input id="cPaymentTerms" placeholder="bv. Contant, Betaald, 30 dagen" value="${esc(c.paymentTerms||"Contant")}" />
+          </div>
+        </div>
+        <div>
+          <label>Klant-specifiek uurtarief</label>
+          <input id="cCustomHourlyRate" type="number" inputmode="decimal" placeholder="leeg = globaal tarief" value="${c.customHourlyRate ? esc(String(c.customHourlyRate)) : ""}" />
+        </div>
         <button class="btn primary" id="saveCustomer">Opslaan</button>
       </div>
 
@@ -3377,10 +3551,15 @@ function renderCustomerSheet(id){
   `;
 
   $("#saveCustomer").onclick = ()=>{
+    const customRateRaw = String($("#cCustomHourlyRate").value || "").trim();
+    const customRateNumber = customRateRaw === "" ? null : Number(customRateRaw.replace(",", "."));
     const result = actions.updateCustomer(c.id, {
       nickname: ($("#cNick").value||"").trim(),
       name: ($("#cName").value||"").trim(),
-      address: ($("#cAddr").value||"").trim()
+      address: ($("#cAddr").value||"").trim(),
+      kboNummer: ($("#cKbo").value||"").trim(),
+      paymentTerms: ($("#cPaymentTerms").value||"").trim() || "Contant",
+      customHourlyRate: Number.isFinite(customRateNumber) ? customRateNumber : null
     });
     if (result?.error === "duplicate_nickname"){
       alert("Bijnaam bestaat al. Kies een unieke bijnaam.");
@@ -4006,7 +4185,7 @@ function settlementLogbookSummary(s){
     .filter(Boolean);
   const totalWorkMs = linkedLogs.reduce((acc, log) => acc + sumWorkMs(log), 0);
   const totalProductCosts = round2(linkedLogs.reduce((acc, log) => acc + sumItemsAmount(log), 0));
-  const hourly = Number(state.settings.hourlyRate||0);
+  const hourly = getCustomerHourlyRate(s.customerId);
   const totalLogPrice = round2((totalWorkMs / 3600000) * hourly + totalProductCosts);
   return { linkedCount: linkedLogs.length, totalWorkMs, totalProductCosts, totalLogPrice };
 }
@@ -4138,7 +4317,7 @@ function renderSettlementLogOverviewSheet(settlementId){
 
   const totalWorkMinutes = linkedLogs.reduce((acc, log) => acc + Math.floor(sumWorkMs(log) / 60000), 0);
   const totalProductCost = round2(linkedLogs.reduce((acc, log) => acc + sumItemsAmount(log), 0));
-  const totalAmount = round2(totalProductCost + ((totalWorkMinutes / 60) * Number(state.settings.hourlyRate || 0)));
+  const totalAmount = round2(totalProductCost + ((totalWorkMinutes / 60) * getCustomerHourlyRate(settlement.customerId)));
 
   $('#sheetActions').innerHTML = '';
   $('#sheetBody').innerHTML = `
