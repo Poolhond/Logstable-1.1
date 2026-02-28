@@ -1701,6 +1701,40 @@ h2{
   gap:6px;
 }
 
+.amount-inline{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:4px 0;
+  background:transparent;
+  border:0;
+  color:var(--text);
+  font-size:14px;
+  font-weight:800;
+  font-variant-numeric: tabular-nums;
+  white-space:nowrap;
+  cursor:pointer;
+}
+
+.amount-inline .icon{
+  width:18px;
+  height:18px;
+  display:block;
+  opacity:0.95;
+}
+
+.amount-inline.is-open{
+  color: var(--status-calculated-border);
+}
+
+.amount-inline.is-paid{
+  color: var(--status-paid-border);
+}
+
+.amount-inline:active{
+  transform:scale(0.98);
+}
+
 .amount-chip{
   display:inline-flex;
   align-items:center;

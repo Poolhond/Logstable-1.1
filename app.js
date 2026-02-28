@@ -34,6 +34,10 @@ function fmtMoney(n){
   const v = Number(n||0);
   return "€" + v.toFixed(2).replace(".", ",");
 }
+function fmtMoney0(n){
+  const v = Number(n||0);
+  return "€" + String(Math.round(v));
+}
 function pad2(n){ return String(n).padStart(2,"0"); }
 function fmtClock(ms){
   const d = new Date(ms);
@@ -111,6 +115,9 @@ function formatLogDatePretty(isoDate){
 }
 function formatMoneyEUR(amount){
   return fmtMoney(amount);
+}
+function formatMoneyEUR0(amount){
+  return fmtMoney0(amount);
 }
 function moneyOrBlank(amount){
   const v = Number(amount || 0);
@@ -2822,6 +2829,20 @@ function renderSettlements(){
       const cashAmt = round2(pay.cashTotal);
       const showInvoice = calculated && invoiceAmt > 0;
       const showCash = calculated && cashAmt > 0;
+      const invoiceSvg = `
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+          <rect x="2.5" y="5.5" width="19" height="13" rx="2.5"></rect>
+          <path d="M2.5 10h19" stroke-linecap="round"></path>
+          <path d="M7 14.5h4" stroke-linecap="round"></path>
+        </svg>
+      `;
+      const cashSvg = `
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+          <circle cx="8.5" cy="12" r="3.5"></circle>
+          <circle cx="15.5" cy="12" r="3.5"></circle>
+          <path d="M12 8.5v7" stroke-linecap="round"></path>
+        </svg>
+      `;
 
       return `
         <div class="item ${visual.accentClass}" data-open-settlement="${s.id}">
@@ -2841,18 +2862,20 @@ function renderSettlements(){
           ${!calculated ? `` : `
             <div class="settlement-amounts">
               ${showInvoice ? `
-                <button class="amount-chip ${flags.invoicePaid ? "is-paid" : "is-open"}"
-                        data-toggle-paid="invoice" data-settlement-id="${s.id}">
-                  <span class="amount-icon">💳</span>
-                  <span class="amount-val">${formatMoneyEUR(invoiceAmt)}</span>
+                <button class="amount-inline ${flags.invoicePaid ? "is-paid" : "is-open"}"
+                        data-toggle-paid="invoice" data-settlement-id="${s.id}"
+                        aria-label="Factuur ${flags.invoicePaid ? "betaald" : "open"}">
+                  ${invoiceSvg}
+                  <span class="amount-val mono tabular">${formatMoneyEUR0(invoiceAmt)}</span>
                 </button>
               ` : ``}
 
               ${showCash ? `
-                <button class="amount-chip ${flags.cashPaid ? "is-paid" : "is-open"}"
-                        data-toggle-paid="cash" data-settlement-id="${s.id}">
-                  <span class="amount-icon">🪙</span>
-                  <span class="amount-val">${formatMoneyEUR(cashAmt)}</span>
+                <button class="amount-inline ${flags.cashPaid ? "is-paid" : "is-open"}"
+                        data-toggle-paid="cash" data-settlement-id="${s.id}"
+                        aria-label="Cash ${flags.cashPaid ? "betaald" : "open"}">
+                  ${cashSvg}
+                  <span class="amount-val mono tabular">${formatMoneyEUR0(cashAmt)}</span>
                 </button>
               ` : ``}
             </div>
