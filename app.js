@@ -1581,10 +1581,11 @@ function shiftAllocation(settlement, key, direction, step){
  * Factuur is incl BTW, cash is excl BTW.
  */
 function getTotalsFromAllocations(settlement){
-  // Lees btwRate uit settings (met fallback voor startup-volgorde)
-  const btwRate = Number(
-    (typeof state !== "undefined" ? state?.settings?.vatRate : null) ?? 0.21
-  );
+  // try-catch is vereist: typeof geeft ook ReferenceError voor let-variabelen in TDZ.
+  // getTotalsFromAllocations wordt aangeroepen vanuit validateAndRepairState() TIJDENS
+  // let state = loadState(), dus state is nog niet geïnitialiseerd.
+  let btwRate = 0.21;
+  try { btwRate = Number(state?.settings?.vatRate ?? 0.21); } catch(e) { /* TDZ */ }
   const allocs = settlement.allocations || {};
   let invoiceExcl = 0;
   let cashExcl = 0;
