@@ -371,6 +371,23 @@ function ensureCoreProducts(st){
   }
 }
 
+function ensureDemoProducts(st){
+  st.products = st.products || [];
+  const demoExtras = [
+    { name:"Meststof", unit:"zak", unitPrice:12.5, vatRate:0.21, defaultBucket:"invoice" },
+    { name:"Hakselhout", unit:"m³", unitPrice:35, vatRate:0.21, defaultBucket:"invoice" },
+    { name:"Anti-worteldoek", unit:"rol", unitPrice:18, vatRate:0.21, defaultBucket:"invoice" },
+    { name:"Transport", unit:"rit", unitPrice:15, vatRate:0.21, defaultBucket:"invoice" },
+    { name:"Machine huur", unit:"dag", unitPrice:45, vatRate:0.21, defaultBucket:"invoice" },
+  ];
+  for (const demoExtra of demoExtras){
+    const exists = st.products.find(p => (p.name || "").trim().toLowerCase() === demoExtra.name.toLowerCase());
+    if (!exists){
+      st.products.push({ id: uid(), ...demoExtra, demo: true });
+    }
+  }
+}
+
 function loadState(){
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw){
@@ -526,6 +543,7 @@ function seedDemoPeriod(st, { months = 24, force = false, seed = "demo-v2" } = {
   if (!force && hasDemo) return false;
 
   ensureCoreProducts(st);
+  ensureDemoProducts(st);
   const workProduct = st.products.find(p => (p.name||"").trim().toLowerCase() === "werk");
   const greenProduct = st.products.find(p => (p.name||"").trim().toLowerCase() === "groen");
   if (!workProduct || !greenProduct) return false;
@@ -641,15 +659,17 @@ function seedDemoPeriod(st, { months = 24, force = false, seed = "demo-v2" } = {
     if (breakMin > 0) segments.push({ id: uid(), type: "break", start: firstEnd, end: breakEnd });
     if (secondWorkMin > 0) segments.push({ id: uid(), type: "work", start: breakEnd, end: finalEnd });
 
-    const workHours = round2(sumWorkMs({ segments }) / 3600000);
     const greenQty = round2(sri(0, 6) / 2);
     const items = [
-      { id: uid(), productId: workProduct.id, qty: workHours, unitPrice: 38, note: "" },
       { id: uid(), productId: greenProduct.id, qty: greenQty, unitPrice: 38, note: "" }
     ];
 
-    if (otherProducts.length && chance(0.06)){
-      const extra = spick(otherProducts);
+    const smallExtras = otherProducts.filter(p => (Number(p.unitPrice || p.price) || 0) <= 20);
+    const bigExtras = otherProducts.filter(p => (Number(p.unitPrice || p.price) || 0) > 20);
+    const pool = chance(0.8) ? smallExtras : bigExtras;
+    const extraChance = pool === smallExtras ? 0.02 : 0.005;
+    if (pool.length && chance(extraChance)){
+      const extra = spick(pool);
       items.push({
         id: uid(),
         productId: extra.id,
@@ -713,9 +733,9 @@ function seedDemoPeriod(st, { months = 24, force = false, seed = "demo-v2" } = {
   function makeLinesFromLogs(logsArr){
     const summary = { workQty: 0, greenQty: 0 };
     for (const log of logsArr){
+      summary.workQty += sumWorkMs(log) / 3600000;
       for (const it of (log.items || [])){
-        if (it.productId === workProduct.id) summary.workQty += Number(it.qty) || 0;
-        else if (it.productId === greenProduct.id) summary.greenQty += Number(it.qty) || 0;
+        if (it.productId === greenProduct.id) summary.greenQty += Number(it.qty) || 0;
       }
     }
     summary.workQty = round2(summary.workQty);
@@ -784,6 +804,8 @@ function seedDemoPeriod(st, { months = 24, force = false, seed = "demo-v2" } = {
     } else {
       invoiceDate = nextQuarterInvoiceDate(lastLog.date);
     }
+    const today = todayISO();
+    if (invoiceDate > today) invoiceDate = today;
     if (invoiceDate < lastLog.date) invoiceDate = lastLog.date;
 
     const createdAt = dateWithBusinessTime(invoiceDate);
@@ -792,9 +814,9 @@ function seedDemoPeriod(st, { months = 24, force = false, seed = "demo-v2" } = {
 
     const ageDays = (endDate.getTime() - createdAt) / 86400000;
     let status = "draft";
-    if (ageDays > 120) status = chance(0.92) ? "calculated" : "draft";
-    else if (ageDays > 45) status = chance(0.72) ? "calculated" : "draft";
-    else status = chance(0.25) ? "calculated" : "draft";
+    if (ageDays > 60) status = chance(0.97) ? "calculated" : "draft";
+    else if (ageDays > 21) status = chance(0.85) ? "calculated" : "draft";
+    else status = chance(0.35) ? "calculated" : "draft";
 
     const settlement = {
       id: uid(),
@@ -813,9 +835,9 @@ function seedDemoPeriod(st, { months = 24, force = false, seed = "demo-v2" } = {
 
     const totals = settlementTotals(settlement);
     if (status !== "draft"){
-      const old = ageDays > 120;
-      settlement.invoicePaid = totals.invoiceTotal > 0 ? chance(old ? 0.88 : 0.55) : false;
-      settlement.cashPaid = totals.cashTotal > 0 ? chance(old ? 0.86 : 0.52) : false;
+      const payChance = ageDays > 120 ? 0.98 : (ageDays > 45 ? 0.93 : 0.75);
+      settlement.invoicePaid = totals.invoiceTotal > 0 ? chance(payChance) : false;
+      settlement.cashPaid = totals.cashTotal > 0 ? chance(payChance) : false;
     }
     return settlement;
   }
@@ -846,6 +868,15 @@ function seedDemoPeriod(st, { months = 24, force = false, seed = "demo-v2" } = {
       const settlement = buildSettlement(customer, groupedLogs);
       if (settlement) settlements.push(settlement);
     }
+  }
+
+  const todayIso = todayISO();
+  const draftSettlements = settlements
+    .filter(s => s.status === "draft")
+    .sort((a, b) => String(b.invoiceDate || "").localeCompare(String(a.invoiceDate || "")));
+  for (const settlement of draftSettlements.slice(6)){
+    if (String(settlement.invoiceDate || "") > todayIso) continue;
+    settlement.status = "calculated";
   }
 
   const demoCalculated = settlements.filter(s => s.status !== "draft");
@@ -898,6 +929,7 @@ function seedDemoMonths(st, { months = 24, force = false, seed = "demo-v2" } = {
 function clearDemoData(st){
   const removedLogIds = new Set((st.logs||[]).filter(l => l.demo).map(l => l.id));
   st.customers = (st.customers||[]).filter(c => !c.demo);
+  st.products = (st.products||[]).filter(p => !p.demo);
   st.logs = (st.logs||[]).filter(l => !l.demo);
   st.settlements = (st.settlements||[])
     .filter(s => !s.demo)
