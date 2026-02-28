@@ -447,7 +447,7 @@ function loadState(){
     if (!("cashAmount" in s)) s.cashAmount = 0;
     if (!("invoiceLocked" in s)) s.invoiceLocked = Boolean(s.isCalculated);
     syncSettlementDatesFromLogs(s, st);
-    ensureSettlementInvoiceDefaults(s, st.settlements || []);
+    ensureSettlementInvoiceDefaults(s);
     syncSettlementAmounts(s);
     if (!("demo" in s)) s.demo = false;
   }
@@ -1252,11 +1252,15 @@ function syncSettlementDatesFromLogs(settlement, sourceState = state){
   settlement.invoiceDate = settlement.date || fallbackDate;
 }
 
-function ensureSettlementInvoiceDefaults(settlement, settlements = state.settlements || []){
+function ensureSettlementInvoiceDefaults(settlement){
   if (!settlement) return;
-  if (settlementHasInvoiceComponent(settlement) && (!settlement.invoiceNumber || !String(settlement.invoiceNumber).trim())){
-    settlement.invoiceNumber = getNextInvoiceNumber(settlements);
+
+  const totals = getSettlementTotals(settlement);
+  const invoiceTotal = Number(totals?.invoiceTotal || 0);
+  if (invoiceTotal <= 0){
+    settlement.invoiceNumber = null;
   }
+
   if (!settlement.invoiceDate){
     settlement.invoiceDate = settlement.date || todayISO();
   }
@@ -1783,7 +1787,7 @@ const actions = {
     for (const s of state.settlements){
       s.logIds = (s.logIds || []).filter(id => id !== logId);
       syncSettlementDatesFromLogs(s);
-      ensureSettlementInvoiceDefaults(s, state.settlements || []);
+      ensureSettlementInvoiceDefaults(s);
     }
     commit();
   },
@@ -1866,7 +1870,7 @@ const actions = {
     if (!settlement || typeof updater !== "function") return;
     updater(settlement);
     syncSettlementDatesFromLogs(settlement);
-    ensureSettlementInvoiceDefaults(settlement, state.settlements || []);
+    ensureSettlementInvoiceDefaults(settlement);
     commit();
   },
   addProduct(product){ state.products.unshift(product); commit(); return product; },
@@ -4040,18 +4044,21 @@ function calculateSettlement(settlement){
 
   syncSettlementDatesFromLogs(settlement);
 
-  // Factuurnummer: enkel toewijzen als er een invoice-component is
-  const totals = getTotalsFromAllocations(settlement);
-  if (totals.invoiceTotal > 0){
-    lockInvoice(settlement);
-    ensureSettlementInvoiceDefaults(settlement, state.settlements || []);
-  } else {
-    settlement.invoiceNumber = null;
-  }
-
   settlement.markedCalculated = true;
   settlement.isCalculated = true;
   settlement.calculatedAt = now();
+
+  // Factuurnummer pas toewijzen zodra de afrekening berekend is.
+  const totals = getTotalsFromAllocations(settlement);
+  if (totals.invoiceTotal > 0){
+    lockInvoice(settlement);
+    const hasInvoiceNumber = Boolean(String(settlement.invoiceNumber || "").trim());
+    if (!hasInvoiceNumber){
+      settlement.invoiceNumber = getNextInvoiceNumber(state.settlements || []);
+    }
+  } else {
+    settlement.invoiceNumber = null;
+  }
   syncSettlementStatus(settlement);
   syncSettlementAmounts(settlement);
 }
@@ -4126,7 +4133,7 @@ function renderSettlementSheet(id){
   if (!("calculatedAt" in s)) s.calculatedAt = s.isCalculated ? (s.createdAt || now()) : null;
   if (!("invoiceLocked" in s)) s.invoiceLocked = Boolean(s.isCalculated);
   syncSettlementDatesFromLogs(s);
-  ensureSettlementInvoiceDefaults(s, state.settlements || []);
+  ensureSettlementInvoiceDefaults(s);
   // Verwijder ensureDefaultSettlementLines — allocations zijn bron van waarheid
   syncSettlementStatus(s);
 
@@ -4151,7 +4158,7 @@ function renderSettlementSheet(id){
 
   const pay = settlementPaymentState(s);
   const visual = getSettlementVisualState(s);
-  const showInvoiceSection = pay.hasInvoice;
+  const showInvoiceNumberSection = isSettlementCalculated(s) && Number(pay.invoiceTotal || 0) > 0;
   const logbookTotals = settlementLogbookTotals(s);
 
   // Bouw allocation-rijen vanuit s.allocations (bron van waarheid)
@@ -4270,7 +4277,7 @@ function renderSettlementSheet(id){
       <div class="section stack section-tight">
         <h2>Administratieve gegevens</h2>
         <div class="summary-row"><span class="label">Datum</span><span class="num">${esc(formatDatePretty(s.date))}</span></div>
-        ${showInvoiceSection && pay.invoiceTotal > 0 ? `<div class="summary-row"><span class="label">Factuurnummer</span><span class="num mono">${esc(invoiceNumberDisplay || '—')}</span></div>` : ''}
+        ${showInvoiceNumberSection ? `<div class="summary-row"><span class="label">Factuurnummer</span><span class="num mono">${esc(invoiceNumberDisplay)}</span></div>` : ''}
         <div class="summary-row"><span class="label">Status</span><span class="num">${esc(statusLabelNL(s.status))}</span></div>
         <div class="summary-row"><span class="label">Notitie</span><span class="num">${esc(s.note || '—')}</span></div>
       </div>
@@ -4279,7 +4286,7 @@ function renderSettlementSheet(id){
       <div class="section stack">
         <h2>Acties</h2>
         <div class="compact-row"><label>Klant</label><div><select id="sCustomer">${customerOptions}</select></div></div>
-        ${showInvoiceSection ? `<div class="compact-row"><label>Factuurnr</label><div>${invoiceLocked ? `<span class="small mono">${esc(invoiceNumberDisplay || '—')}</span>` : `<input id="invoiceNumberInput" value="${esc(invoiceNumberDisplay)}" />`}</div></div>` : ''}
+        ${showInvoiceNumberSection ? `<div class="compact-row"><label>Factuurnr</label><div>${invoiceLocked ? `<span class="small mono">${esc(invoiceNumberDisplay)}</span>` : `<input id="invoiceNumberInput" value="${esc(invoiceNumberDisplay)}" />`}</div></div>` : ''}
         <textarea id="sNote" rows="3">${esc(s.note||"")}</textarea>
         <button class="btn danger" id="delSettlement">Verwijder</button>
       </div>` : ""}
