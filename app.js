@@ -16,6 +16,12 @@ const START_TOP_LIMIT = 8;
 const $ = (s) => document.querySelector(s);
 const NAV_TRANSITION_MS = 240;
 const NAV_TRANSITION_EASING = "cubic-bezier(0.22, 0.61, 0.36, 1)";
+const SETTLEMENT_LIST_DEFAULTS = {
+  statusFilter: ["draft", "calculated"],
+  onlyInvoices: false,
+  sortKey: "date",
+  sortDir: "desc"
+};
 
 const uid = () => Math.random().toString(16).slice(2) + "-" + Math.random().toString(16).slice(2);
 const now = () => Date.now();
@@ -244,6 +250,9 @@ function defaultState(){
       period: "all",
       groupBy: "date",
       sortDir: "desc"
+    },
+    settlementList: {
+      ...SETTLEMENT_LIST_DEFAULTS
     }
   };
 }
@@ -294,6 +303,7 @@ function validateAndRepairState(st){
 function ensureUIPreferences(st){
   st.ui = st.ui || {};
   st.logbook = st.logbook || {};
+  st.settlementList = st.settlementList || {};
 
   if (!["open", "paid", "all"].includes(st.logbook.statusFilter)){
     st.logbook.statusFilter = ["open", "paid", "all"].includes(st.ui.logFilter) ? st.ui.logFilter : "open";
@@ -307,6 +317,16 @@ function ensureUIPreferences(st){
   if (!["all", "week", "month", "30d"].includes(st.logbook.period)) st.logbook.period = "all";
   if (!["date", "customer", "workTime", "productTotal", "status"].includes(st.logbook.groupBy)) st.logbook.groupBy = "date";
   if (!["desc", "asc"].includes(st.logbook.sortDir)) st.logbook.sortDir = "desc";
+
+  const normalizedStatusFilter = Array.isArray(st.settlementList.statusFilter)
+    ? [...new Set(st.settlementList.statusFilter.filter(status => ["draft", "calculated", "paid"].includes(status)))]
+    : [];
+  st.settlementList.statusFilter = normalizedStatusFilter.length
+    ? normalizedStatusFilter
+    : [...SETTLEMENT_LIST_DEFAULTS.statusFilter];
+  if (typeof st.settlementList.onlyInvoices !== "boolean") st.settlementList.onlyInvoices = SETTLEMENT_LIST_DEFAULTS.onlyInvoices;
+  if (!["date", "invoiceNumber"].includes(st.settlementList.sortKey)) st.settlementList.sortKey = SETTLEMENT_LIST_DEFAULTS.sortKey;
+  if (!["desc", "asc"].includes(st.settlementList.sortDir)) st.settlementList.sortDir = SETTLEMENT_LIST_DEFAULTS.sortDir;
 
   if (!("editLogId" in st.ui)) st.ui.editLogId = null;
   if (!("editSettlementId" in st.ui)) st.ui.editSettlementId = null;
@@ -1881,6 +1901,7 @@ function viewTitle(viewState){
   if (view === "customers") return "Klanten";
   if (view === "products") return "Producten";
   if (view === "settings") return "Instellingen";
+  if (view === "settlementListOptions") return "Filter & sorteer";
   if (view === "logDetail"){
     const l = state.logs.find(x => x.id === viewState.id);
     return l ? `${cname(l.customerId)} · ${l.date}` : "Werklog";
@@ -1964,11 +1985,11 @@ function renderTopbar(){
 
   const isSettlementsRoot = !showBack && active.view === "settlements";
   btnNew.innerHTML = isSettlementsRoot
-    ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.4 6.3c-1.2-1-2.6-1.6-4.3-1.6-2.7 0-4.9 1.8-5.5 4.3H5.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.5 12h6.6" stroke-linecap="round"/><path d="M5.5 15.7h5.7" stroke-linecap="round"/><path d="M7.4 17.5c.9 1.6 2.7 2.8 4.9 2.8 1.8 0 3.5-.7 4.8-2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.8 9.2v5.6M15 12h5.6" stroke-linecap="round"/></svg>`
+    ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h8" stroke-linecap="round"/><path d="M16 6h4" stroke-linecap="round"/><circle cx="14" cy="6" r="2"/><path d="M4 12h4" stroke-linecap="round"/><path d="M12 12h8" stroke-linecap="round"/><circle cx="10" cy="12" r="2"/><path d="M4 18h10" stroke-linecap="round"/><path d="M18 18h2" stroke-linecap="round"/><circle cx="16" cy="18" r="2"/></svg>`
     : `<svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
   btnNew.classList.toggle("hidden", showBack);
-  btnNew.setAttribute("aria-label", isSettlementsRoot ? "Nieuwe afrekening" : "Nieuwe werklog");
-  btnNew.setAttribute("title", isSettlementsRoot ? "Nieuwe afrekening" : "Nieuwe werklog");
+  btnNew.setAttribute("aria-label", isSettlementsRoot ? "Filter & sorteer" : "Nieuwe werklog");
+  btnNew.setAttribute("title", isSettlementsRoot ? "Filter & sorteer" : "Nieuwe werklog");
 }
 
 function setTab(key){
@@ -2028,8 +2049,7 @@ $("#btnNewLog").onclick = ()=>{
   }
   if (ui.navStack.length > 1) return;
   if (active.view === "settlements"){
-    const settlement = createSettlement("");
-    openSheet("settlement", settlement.id);
+    pushView({ view: "settlementListOptions" });
     return;
   }
   pushView({ view: "newLog" });
@@ -2668,50 +2688,80 @@ function _attachSettingsHandlers(){
 
 function renderSettlements(){
   const el = $("#tab-settlements");
-  const list = [...state.settlements].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(s=>{
-    const pay = settlementPaymentState(s);
-    const visual = getSettlementVisualState(s);
-    const linkedLogs = (s.logIds||[])
-      .map(id => state.logs.find(l => l.id === id))
-      .filter(Boolean);
-    const totalMinutes = Math.floor(linkedLogs.reduce((acc, log) => acc + sumWorkMs(log), 0) / 60000);
-    const grand = round2(pay.invoiceTotal + pay.cashTotal);
+  const prefs = {
+    ...SETTLEMENT_LIST_DEFAULTS,
+    ...(state.settlementList || {})
+  };
+  const fallbackDateDesc = (a, b)=> String(b?.date || "").localeCompare(String(a?.date || ""));
+  const parseInvoiceNumber = (value)=> {
+    const digits = String(value || "").match(/(\d+)/g);
+    if (!digits || !digits.length) return null;
+    const parsed = Number(digits.join(""));
+    return Number.isFinite(parsed) ? parsed : null;
+  };
 
-    return `
-      <div class="item ${visual.accentClass}" data-open-settlement="${s.id}">
-        <div class="item-main">
-          <div class="item-title">${esc(cname(s.customerId))}</div>
-          <div class="meta-text" style="margin-top:2px;">
-            ${esc(formatDatePretty(s.date))} · ${(s.logIds||[]).length} logs · ${formatDurationCompact(totalMinutes)}
+  const list = [...state.settlements]
+    .filter((s)=>{
+      const status = getSettlementVisualState(s).state;
+      if (!prefs.statusFilter.includes(status)) return false;
+      if (prefs.onlyInvoices && !settlementHasInvoiceComponent(s)) return false;
+      return true;
+    })
+    .sort((a,b)=>{
+      if (prefs.sortKey === "invoiceNumber"){
+        const ai = parseInvoiceNumber(a?.invoiceNumber);
+        const bi = parseInvoiceNumber(b?.invoiceNumber);
+        if (ai == null && bi != null) return 1;
+        if (ai != null && bi == null) return -1;
+        if (ai != null && bi != null && ai !== bi){
+          return prefs.sortDir === "asc" ? ai - bi : bi - ai;
+        }
+        return fallbackDateDesc(a, b);
+      }
+
+      const ad = String(a?.date || "");
+      const bd = String(b?.date || "");
+      if (!ad && bd) return 1;
+      if (ad && !bd) return -1;
+      if (ad !== bd){
+        return prefs.sortDir === "asc" ? ad.localeCompare(bd) : bd.localeCompare(ad);
+      }
+      return 0;
+    })
+    .map(s=>{
+      const pay = settlementPaymentState(s);
+      const visual = getSettlementVisualState(s);
+      const linkedLogs = (s.logIds||[])
+        .map(id => state.logs.find(l => l.id === id))
+        .filter(Boolean);
+      const totalMinutes = Math.floor(linkedLogs.reduce((acc, log) => acc + sumWorkMs(log), 0) / 60000);
+      const grand = round2(pay.invoiceTotal + pay.cashTotal);
+
+      return `
+        <div class="item ${visual.accentClass}" data-open-settlement="${s.id}">
+          <div class="item-main">
+            <div class="item-title">${esc(cname(s.customerId))}</div>
+            <div class="meta-text" style="margin-top:2px;">
+              ${esc(formatDatePretty(s.date))} · ${(s.logIds||[]).length} logs · ${formatDurationCompact(totalMinutes)}
+            </div>
           </div>
+          <div class="amount-prominent">${formatMoneyEUR(grand)}</div>
         </div>
-        <div class="amount-prominent">${formatMoneyEUR(grand)}</div>
-      </div>
-    `;
-  }).join("");
+      `;
+    }).join("");
 
   el.innerHTML = `
     <div class="stack">
-      <div class="geld-header">
-        <span class="geld-header-title">Afrekeningen</span>
-        <button class="btn-new-settlement" id="btnNewSettlement">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
-          Nieuwe afrekening
-        </button>
-      </div>
+      <div class="geld-header"><span class="geld-header-title">Afrekeningen</span></div>
       <div class="flat-list">${list || `<div class="meta-text" style="padding:8px 4px;">Nog geen afrekeningen.</div>`}</div>
     </div>
   `;
-
-  $("#btnNewSettlement")?.addEventListener("click", ()=>{
-    const s = createSettlement();
-    openSheet("settlement", s.id);
-  });
 
   el.querySelectorAll("[data-open-settlement]").forEach(x=>{
     x.addEventListener("click", ()=> openSheet("settlement", x.getAttribute("data-open-settlement")));
   });
 }
+
 
 // ---------- Meer tab ----------
 function renderMeer(){
@@ -2775,6 +2825,92 @@ function renderSheet(){
   if (active.view === "customers") renderCustomersSheet();
   if (active.view === "products") renderProductsSheet();
   if (active.view === "settings") renderSettingsSheet();
+  if (active.view === "settlementListOptions") renderSettlementListOptionsSheet();
+}
+
+
+function renderSettlementListOptionsSheet(){
+  const body = $("#sheetBody");
+  const prefs = {
+    ...SETTLEMENT_LIST_DEFAULTS,
+    ...(state.settlementList || {})
+  };
+  const hasStatus = (status)=> prefs.statusFilter.includes(status);
+
+  body.innerHTML = `
+    <div class="stack">
+      <div class="card stack">
+        <div class="item-title">Status</div>
+        <button class="btn ${hasStatus("draft") ? "primary" : ""}" type="button" data-settlement-status="draft">Nog te berekenen</button>
+        <button class="btn ${hasStatus("calculated") ? "primary" : ""}" type="button" data-settlement-status="calculated">Berekend</button>
+        <button class="btn ${hasStatus("paid") ? "primary" : ""}" type="button" data-settlement-status="paid">Betaald</button>
+      </div>
+
+      <div class="card stack">
+        <button class="btn ${prefs.onlyInvoices ? "primary" : ""}" type="button" id="toggleOnlyInvoices">Enkel facturen</button>
+      </div>
+
+      <div class="card stack">
+        <div class="item-title">Sorteren op</div>
+        <button class="btn ${prefs.sortKey === "date" ? "primary" : ""}" type="button" data-settlement-sortkey="date">Datum</button>
+        <button class="btn ${prefs.sortKey === "invoiceNumber" ? "primary" : ""}" type="button" data-settlement-sortkey="invoiceNumber">Factuurnr</button>
+        <button class="btn" type="button" id="toggleSettlementSortDir">${prefs.sortDir === "desc" ? "Nieuwste eerst" : "Oudste eerst"}</button>
+      </div>
+    </div>
+  `;
+
+  body.querySelectorAll("[data-settlement-status]").forEach((btn)=>{
+    btn.addEventListener("click", ()=>{
+      const status = btn.getAttribute("data-settlement-status");
+      const selected = new Set((state.settlementList?.statusFilter || SETTLEMENT_LIST_DEFAULTS.statusFilter));
+      if (selected.has(status)){
+        if (selected.size <= 1) return;
+        selected.delete(status);
+      } else {
+        selected.add(status);
+      }
+      state.settlementList = {
+        ...SETTLEMENT_LIST_DEFAULTS,
+        ...(state.settlementList || {}),
+        statusFilter: [...selected]
+      };
+      saveState();
+      renderSheet();
+    });
+  });
+
+  $("#toggleOnlyInvoices")?.addEventListener("click", ()=>{
+    state.settlementList = {
+      ...SETTLEMENT_LIST_DEFAULTS,
+      ...(state.settlementList || {}),
+      onlyInvoices: !Boolean(state.settlementList?.onlyInvoices)
+    };
+    saveState();
+    renderSheet();
+  });
+
+  body.querySelectorAll("[data-settlement-sortkey]").forEach((btn)=>{
+    btn.addEventListener("click", ()=>{
+      const sortKey = btn.getAttribute("data-settlement-sortkey");
+      state.settlementList = {
+        ...SETTLEMENT_LIST_DEFAULTS,
+        ...(state.settlementList || {}),
+        sortKey
+      };
+      saveState();
+      renderSheet();
+    });
+  });
+
+  $("#toggleSettlementSortDir")?.addEventListener("click", ()=>{
+    state.settlementList = {
+      ...SETTLEMENT_LIST_DEFAULTS,
+      ...(state.settlementList || {}),
+      sortDir: state.settlementList?.sortDir === "asc" ? "desc" : "asc"
+    };
+    saveState();
+    renderSheet();
+  });
 }
 
 function renderSheetKeepScroll(){
