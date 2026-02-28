@@ -1714,8 +1714,8 @@ h2{
 
 .settlement-row-grid{
   display:grid;
-  grid-template-columns:minmax(0,1fr) 120px 120px;
-  column-gap:14px;
+  grid-template-columns:minmax(0,1fr) auto;
+  column-gap:10px;
   width:100%;
   align-items:center;
 }
@@ -1728,11 +1728,11 @@ h2{
 }
 
 .amount-inline{
-  width:100%;
+  width:auto;
   display:flex;
   align-items:center;
   justify-content:flex-end;
-  padding:4px 0;
+  padding:0;
   background:transparent;
   border:0;
   color:var(--text);
@@ -1748,7 +1748,36 @@ h2{
   display:inline-flex;
   align-items:center;
   justify-content:flex-end;
-  gap:7px;
+  gap:0;
+}
+
+.row-right{
+  display:grid;
+  grid-template-columns:auto auto;
+  column-gap:12px;
+  align-items:center;
+  justify-content:end;
+}
+
+.invoice-col{
+  width:96px;
+}
+
+.invoice-number{
+  min-height:16px;
+  color:var(--muted);
+  font-size:12px;
+  font-weight:600;
+  text-align:right;
+}
+
+.invoice-amount,
+.cash-amount{
+  text-align:right;
+}
+
+.cash-amount{
+  width:84px;
 }
 
 .amount-inline .icon,
